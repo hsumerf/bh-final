@@ -59,54 +59,41 @@ namespace BrailleUrdu
         private string slpittext(string inpt, int limit)
         {
             StringBuilder sb = new StringBuilder();
-            int startPos = 0, lastSpace = 0;
+            int staringIndextOfCurrentLine = 0, lastSpace = 0;
 
 
             for (int i = 0; i < inpt.Length; i++)
             {
-                if (inpt[i] == '\n')
-                {
-                    sb.Append(inpt.Substring(startPos, i - startPos));
-                    lineCount++;
-                    startPos = i;
-                }
-                else if (inpt[i] == ' ')
-                    lastSpace = i + 1;
-
-                if (lineCount % 5 == 0)
-                    limit = 35;
-                else
-                    limit = 39;
-
-
-                if (i - startPos > limit)
-                {
-                    sb.Append(inpt.Substring(startPos, lastSpace - startPos));
-                    if (lineCount % 5 == 0)
-                    {
-                        for (int g = 0; g < 39 - (lastSpace - startPos) - ((lineCount / 5)).ToString().Length ; g++)
-                        {
-                            sb.Append(" ");
-                        }
-                        sb.Append( (lineCount / 5));
-                        //MessageBox.Show((lastSpace - startPos).ToString());
-                    }
-                    lineCount++;
-                  
-                    sb.Append('\n');
-                 
-                    startPos = lastSpace;
-                }
-                //else if (i - lastSpace > limit)
+                //if (inpt[i] == '\n')
                 //{
-                //    sb.Append(inpt.Substring(lastSpace, i - lastSpace));
-                //    sb.Append(Environment.NewLine);
-                //    startPos = i;
-                //    lastSpace = i;
+                //    sb.Append(inpt.Substring(staringIndextOfCurrentLine, i - staringIndextOfCurrentLine));
+                //    lineCount++;
+                //    staringIndextOfCurrentLine = i;
                 //}
+                if (inpt[i] == ' ')
+                    lastSpace = i;
 
+                
+
+                if (i - staringIndextOfCurrentLine > limit-1)
+                {
+                    if (lineCount % 5 == 0)
+                        limit = 20;
+                    else
+                        limit = 40;
+
+                    sb.Append(inpt.Substring(staringIndextOfCurrentLine, lastSpace - staringIndextOfCurrentLine));               
+                    lineCount++;                
+                    sb.Append('\n');               
+                    staringIndextOfCurrentLine = lastSpace+1;
+
+                    if (lineCount % 5 == 0)
+                        limit = 20;
+                    else
+                        limit = 40;
+                }
             }
-            sb.Append(inpt.Substring(startPos, inpt.Length - startPos));
+            sb.Append(inpt.Substring(staringIndextOfCurrentLine, inpt.Length - staringIndextOfCurrentLine));
             return sb.ToString();
         }
 
