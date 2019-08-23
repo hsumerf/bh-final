@@ -77,7 +77,7 @@ namespace BrailleUrdu
 
                 if (i - staringIndextOfCurrentLine > limit-1)
                 {
-                    if (lineCount % 5 == 0)
+                    if (lineCount % 32 == 0)
                         limit = 20;
                     else
                         limit = 40;
@@ -87,14 +87,17 @@ namespace BrailleUrdu
                     sb.Append('\n');               
                     staringIndextOfCurrentLine = lastSpace+1;
 
-                    if (lineCount % 5 == 0)
+                    if (lineCount % 32 == 0)
                         limit = 20;
                     else
                         limit = 40;
                 }
             }
             sb.Append(inpt.Substring(staringIndextOfCurrentLine, inpt.Length - staringIndextOfCurrentLine));
+            sb.Append('\n');
+            lineCount++;     
             return sb.ToString();
+
         }
 
 
@@ -121,7 +124,13 @@ namespace BrailleUrdu
             //var a = fstBox.LineInfos[0].CutOffPositions[0];
             //text = fstBox.Text.Substring(0, a);
             //MessageBox.Show(text);
-            fstBox.Text = slpittext(fstBox.Text, 40);
+            string text="";
+            foreach (var item in fstBox.Lines)
+            {
+               text += slpittext(item, 40);
+            }
+            fstBox.Text = text;
+           
         }
 
         private void button2_Click(object sender, EventArgs e)
@@ -132,49 +141,15 @@ namespace BrailleUrdu
 
         private void fstBox_PaintLine(object sender, PaintLineEventArgs e)
         {
-            if (e.LineIndex % 5 == 0)
+            if (e.LineIndex % 32 == 0)
             {                
-                e.Graphics.DrawLine(new Pen(Color.Black), e.LineRect.X,e.LineRect.Y,500,e.LineRect.Y);
+                e.Graphics.DrawLine(new Pen(Color.Black), e.LineRect.X,e.LineRect.Y,400,e.LineRect.Y);
             }
-        }
-
-        private static IEnumerable<string> Wrap(IEnumerable<string> words,
-                                               int lineWidth)
-        {
-            var currentWidth = 0;
-            foreach (var word in words)
-            {
-                if (currentWidth != 0)
-                {
-                    if (currentWidth + word.Length < lineWidth)
-                    {
-                        currentWidth++;
-                        yield return " ";
-                    }
-                    else
-                    {
-                        currentWidth = 0;
-                        yield return Environment.NewLine;
-                    }
-                }
-                currentWidth += word.Length;
-                yield return word;
-            }
-        }
-
-        private static string Wrap(string text, int lineWidth)
-        {
-            return string.Join(string.Empty,
-                               Wrap(
-                                   text.Split(new char[0],
-                                              StringSplitOptions
-                                                  .RemoveEmptyEntries),
-                                   lineWidth));
-        }
+        }     
 
         private void button3_Click(object sender, EventArgs e)
         {
-            fstBox.Text = Wrap(fstBox.Text, 40);
+            //fstBox.Text = Wrap(fstBox.Text, 40);
         }
     }
 }
