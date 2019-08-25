@@ -77,9 +77,11 @@
             this.fstBox.WordWrap = true;
             this.fstBox.WordWrapAutoIndent = false;
             this.fstBox.Zoom = 100;
+            this.fstBox.TextChanged += new System.EventHandler<FastColoredTextBoxNS.TextChangedEventArgs>(this.fstBox_TextChanged);
             this.fstBox.SelectionChanged += new System.EventHandler(this.fstBox_SelectionChanged);
             this.fstBox.PaintLine += new System.EventHandler<FastColoredTextBoxNS.PaintLineEventArgs>(this.fstBox_PaintLine);
             this.fstBox.ScrollbarsUpdated += new System.EventHandler(this.fstBox_ScrollbarsUpdated);
+            this.fstBox.KeyDown += new System.Windows.Forms.KeyEventHandler(this.fstBox_KeyDown);
             // 
             // vScrollBar1
             // 

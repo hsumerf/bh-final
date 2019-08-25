@@ -325,36 +325,32 @@ namespace BrailleUrdu
             }
             else if (e.KeyCode == Keys.Space)
             {
-               
-
-                int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
-                string lastWord = richTextBox1.Text.Substring(lastSpace + 1, richTextBox1.SelectionStart-1 -lastSpace);
-                label1.Focus();
-                richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);
-                //richTextBox1.SelectionColor = Color.Red;
-                //richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength+1, 0);
-                
 
 
-                if (!hashSet.Contains(lastWord))
-                {
-                    Player.URL = "error.mp3";
-                    Player.controls.play();
+                //int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+                //int secondSpace = richTextBox1.Text.IndexOf(' ', richTextBox1.SelectionStart + 1);
+                //string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
+                ////label1.Focus();
+                ////richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);
+                ////richTextBox1.SelectionColor = Color.Red;
+                ////richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength+1, 0);
+
+
+
+                //if (!hashSet.Contains(lastWord))
+                //{
+                //    Player.URL = "error.mp3";
+                //    Player.controls.play();
+
+
+                //}
+                //else
+                //{
+                //    Player.URL = "space.mp3";
+                //    Player.controls.play();
+
                    
-                    richTextBox1.SelectionColor = Color.Red;
-                    richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
-                    richTextBox1.Focus();
-                    richTextBox1.SelectionColor = Color.Black;
-                }
-                else
-                {
-                    Player.URL = "space.mp3";
-                    Player.controls.play();
-
-                    richTextBox1.SelectionColor = Color.Black;
-                    richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
-                    richTextBox1.Focus();
-                }
+                //}
             }
             else if (e.KeyCode == Keys.Back)
             {
@@ -411,6 +407,26 @@ namespace BrailleUrdu
         private void richTextBox1_TextChanged(object sender, EventArgs e)
         {
 
+            richTextBox2.Text = richTextBox1.Rtf;
+          
+            int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+
+            if (lastSpace == -1)
+                lastSpace = 0;
+
+            int secondSpace = richTextBox1.Text.IndexOf(' ', richTextBox1.SelectionStart);
+
+            if (secondSpace == -1)
+                secondSpace = richTextBox1.SelectionStart;
+
+            string lastWord = richTextBox1.Text.Substring(lastSpace, secondSpace - lastSpace);
+            Text = lastWord;
+
+            //richTextBox1.Select(lastSpace, secondSpace - lastSpace);
+            //richTextBox1.SelectionColor = Color.Red;
+            //richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
+
+
         }
 
         private void button3_Click(object sender, EventArgs e)
@@ -442,6 +458,14 @@ namespace BrailleUrdu
         private void button8_Click(object sender, EventArgs e)
         {
             Narrator.Beep();
+        }
+
+        private void button2_Click(object sender, EventArgs e)
+        {
+            richTextBox1.Lines[2] = "ASDasd";
+            richTextBox1.Refresh();
+            //richTextBox1.Select(richTextBox1.SelectionStart, 0);
+            //richTextBox1.Rtf = richTextBox2.Text;
         }
     }
 }

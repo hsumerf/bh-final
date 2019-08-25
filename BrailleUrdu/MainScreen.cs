@@ -130,7 +130,7 @@ namespace BrailleUrdu
                text += slpittext(item, 40);
             }
             fstBox.Text = text;
-           
+            brk = true;
         }
 
         private void button2_Click(object sender, EventArgs e)
@@ -150,6 +150,27 @@ namespace BrailleUrdu
         private void button3_Click(object sender, EventArgs e)
         {
             //fstBox.Text = Wrap(fstBox.Text, 40);
+        }
+        bool brk = false;
+        private void fstBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (fstBox.Lines[fstBox.Selection.Start.iLine].Length > 40 && brk == true)
+                fstBox.Undo();           
+                 
+        }
+
+        private void fstBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (fstBox.Lines[fstBox.Selection.Start.iLine].Length == 0 && brk == true && e.KeyCode == Keys.Back)
+            {
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (fstBox.Selection.Start.iLine != fstBox.Selection.End.iLine)
+            {
+                e.SuppressKeyPress = true;
+            }
         }
     }
 }
