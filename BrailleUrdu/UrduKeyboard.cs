@@ -13,19 +13,6 @@ namespace BrailleUrdu
         Dictionary<char, char> keysDictonary = new Dictionary<char, char>();
         public bool isKeyFound = false;
         public bool enableAudio = true;
-        System.Windows.Forms.RichTextBox myTB;     
-
-        public UrduKeyboard(System.Windows.Forms.RichTextBox tb)
-        {
-            myTB = tb;
-            myTB.KeyDown += MyTB_KeyDown;
-
-        }
-
-        private void MyTB_KeyDown(object sender, System.Windows.Forms.KeyEventArgs e)
-        {
-            Console.WriteLine("SS");
-        }
 
         public UrduKeyboard()
         {          
@@ -103,6 +90,10 @@ namespace BrailleUrdu
         {
             char val;           
             isKeyFound = keysDictonary.TryGetValue(key, out val);
+            if (isKeyFound && enableAudio)
+            {
+                Narrator.Narrate(val.ToString());
+            }
             return val;
         }
 

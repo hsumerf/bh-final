@@ -10,9 +10,18 @@ namespace BrailleUrdu
     {
         static Dictionary<string, string> dictionary = new Dictionary<string, string>()
         {
-            {"a","alif.mp3"},
-            {"b", "bee.mp3"},
-            {"c","pee.mp3"}
+            {"ا","alif.mp3"},
+            {"ب", "bee.mp3"},
+            {"پ","pee.mp3"},
+            {"ت","tee.mp3"},
+            {"ھ","hee.mp3"},
+            {"د", "dal.mp3"},
+            {"ر","ree.mp3"},
+            {"س","seen.mp3"},
+            {"ش", "sheen.mp3"},
+            {"ل","laam.mp3"},
+            {"م","meem.mp3"},
+            {" ", "space.mp3"},
         };
 
         static int currentAlphabate = 0;
