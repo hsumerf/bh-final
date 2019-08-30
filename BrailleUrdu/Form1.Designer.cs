@@ -163,7 +163,9 @@
             this.fstBox.WordWrap = true;
             this.fstBox.WordWrapAutoIndent = false;
             this.fstBox.Zoom = 100;
+            this.fstBox.TextChanged += new System.EventHandler<FastColoredTextBoxNS.TextChangedEventArgs>(this.fstBox_TextChanged);
             this.fstBox.SelectionChanged += new System.EventHandler(this.fstBox_SelectionChanged_1);
+            this.fstBox.KeyDown += new System.Windows.Forms.KeyEventHandler(this.fstBox_KeyDown);
             // 
             // label1
             // 
@@ -372,8 +374,10 @@
             // 
             this.embossToolStripMenuItem1.ForeColor = System.Drawing.Color.Black;
             this.embossToolStripMenuItem1.Name = "embossToolStripMenuItem1";
+            this.embossToolStripMenuItem1.ShortcutKeys = ((System.Windows.Forms.Keys)((System.Windows.Forms.Keys.Control | System.Windows.Forms.Keys.E)));
             this.embossToolStripMenuItem1.Size = new System.Drawing.Size(162, 22);
             this.embossToolStripMenuItem1.Text = "Emboss";
+            this.embossToolStripMenuItem1.Click += new System.EventHandler(this.embossToolStripMenuItem1_Click);
             // 
             // editToolStripMenuItem1
             // 

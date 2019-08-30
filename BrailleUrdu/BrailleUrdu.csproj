@@ -79,6 +79,7 @@
     <Compile Include="Narrator.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="RawHelper.cs" />
     <Compile Include="Substring.cs" />
     <Compile Include="UrduKeyboard.cs" />
     <Compile Include="UrduTranslator.cs" />

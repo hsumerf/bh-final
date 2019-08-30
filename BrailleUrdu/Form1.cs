@@ -15,6 +15,7 @@ using NAudio;
 using NAudio.Wave;
 using System.Speech.Synthesis;
 using WMPLib;
+using System.Drawing.Printing;
 
 namespace BrailleUrdu
 {
@@ -41,7 +42,8 @@ namespace BrailleUrdu
         }
 
         UrduKeyboard UrduKeyboard = new UrduKeyboard();
-       
+        private bool brk;
+
         private void richTextBox1_KeyPress(object sender, KeyPressEventArgs e)
         {
             if (ModifierKeys == Keys.Control)
@@ -61,12 +63,8 @@ namespace BrailleUrdu
             }
             catch (Exception)
             {
-            }
-           
-           
-        }
-
-      
+            }                  
+        }    
 
         private void richTextBox1_KeyDown(object sender, KeyEventArgs e)
         {
@@ -143,10 +141,14 @@ namespace BrailleUrdu
 
         private void translateToolStripMenuItem1_Click(object sender, EventArgs e)
         {
+            brk = false;
+
             UrduTranslator ur = new UrduTranslator();
             Formater formater = new Formater();
             fstBox.Text = formater.Format(ur.Transat(richTextBox1.Text), 40, 25);
             fstBox.Font = new Font("SimBraille", 18);
+
+            brk = true;
         }
 
         private void fstBox_SelectionChanged_1(object sender, EventArgs e)
@@ -158,6 +160,44 @@ namespace BrailleUrdu
         private void richTextBox1_TextChanged(object sender, EventArgs e)
         {
 
+        }
+
+        private void fstBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (fstBox.Lines[fstBox.Selection.Start.iLine].Length == 0 && brk == true && e.KeyCode == Keys.Back)
+            {
+                e.SuppressKeyPress = true;
+                return;
+            }
+
+            if (fstBox.Selection.Start.iLine != fstBox.Selection.End.iLine)
+            {
+                e.SuppressKeyPress = true;
+            }
+        }
+
+
+        private void fstBox_TextChanged(object sender, FastColoredTextBoxNS.TextChangedEventArgs e)
+        {
+            if (fstBox.Lines[fstBox.Selection.Start.iLine].Length > 40 && brk == true)
+                fstBox.Undo();
+        }
+
+        private void embossToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+            PrintDialog pd = new PrintDialog();
+            pd.PrinterSettings = new PrinterSettings();
+            if (DialogResult.OK == pd.ShowDialog(this))
+            {
+
+                RawHelper.SendStringToPrinter(pd.PrinterSettings.PrinterName, fstBox.Text);
+            }
         }
     }
 }
