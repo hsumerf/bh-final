@@ -92,6 +92,7 @@ namespace BrailleUrdu
             isKeyFound = keysDictonary.TryGetValue(key, out val);
             if (isKeyFound && enableAudio)
             {
+
                 Narrator.Narrate(val.ToString());
             }
             return val;

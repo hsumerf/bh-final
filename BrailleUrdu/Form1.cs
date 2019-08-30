@@ -32,7 +32,7 @@ namespace BrailleUrdu
         {
             UrduKeyboard ur = new UrduKeyboard();
 
-            var list = File.ReadAllLines(@"C:\Users\admin\source\repos\urdu tester\urdu tester\bin\Debug\final.txt");
+            var list = File.ReadAllLines(@"final.txt");
             hashSet = new HashSet<string>(list);
             installFont.RegisterFont("E:\\Brushield italic.ttf");
             Narrator.Initialize();
@@ -40,43 +40,11 @@ namespace BrailleUrdu
 
         }
 
-        private void button1_Click(object sender, EventArgs e)
-        {
-            //orignalText = richTextBox1.Text;
-            UrduTranslator ur = new UrduTranslator();
-            richTextBox2.Text = ur.ReplaceWithStringBuilder(richTextBox1.Text);
-            //  richTextBox2.Text = slpittext(richTextBox1.Text, 40);
-            richTextBox2.Font = new Font("SimBraille", 18);
-            //MainScreen mn = new MainScreen();
-            //mn.Show();
-        }
-
-        private void radioButton2_CheckedChanged(object sender, EventArgs e)
-        {
-            if (radioButton2.Checked == true)
-
-            {
-                richTextBox1.Font = new Font("Consolas", 16);
-            }
-        }
-
-        private void radioButton1_CheckedChanged(object sender, EventArgs e)
-        {
-            if (radioButton1.Checked == true)
-            {
-                UrduTranslator ur = new UrduTranslator();
-                richTextBox2.Text = ur.ReplaceWithStringBuilder(richTextBox1.Text);
-              //  richTextBox2.Text = slpittext(richTextBox1.Text, 40);
-                richTextBox2.Font = new Font("SimBraille", 18);
-            }
-           
-        }
-
         UrduKeyboard UrduKeyboard = new UrduKeyboard();
        
         private void richTextBox1_KeyPress(object sender, KeyPressEventArgs e)
         {
-            if (ModifierKeys == Keys.Modifiers)
+            if (ModifierKeys == Keys.Control)
                 return;
 
             richTextBox1.SelectedText =  UrduKeyboard.ConvertKey(e.KeyChar).ToString();
@@ -105,7 +73,11 @@ namespace BrailleUrdu
              if (e.KeyCode == Keys.Down)
             {
                 e.SuppressKeyPress = true;
-                Narrator.Narrate(Text);
+                int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+                int secondSpace = richTextBox1.SelectionStart;
+                string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
+
+                Narrator.Narrate(lastWord);
 
             }
 
@@ -113,38 +85,40 @@ namespace BrailleUrdu
             {
 
 
-                //int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
-                //int secondSpace = richTextBox1.Text.IndexOf(' ', richTextBox1.SelectionStart + 1);
-                //string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
-                ////label1.Focus();
-                ////richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);
-                ////richTextBox1.SelectionColor = Color.Red;
-                ////richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength+1, 0);
+                int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+                int secondSpace = richTextBox1.SelectionStart;
+                string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
+                label1.Focus();
+                richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);          
+
+                if (!hashSet.Contains(lastWord))
+                {
+                    Narrator.Beep();
+                    richTextBox1.SelectionColor = Color.Red;
+                }
+                else
+                {
+                    Narrator.Narrate(" ");
+                    richTextBox1.SelectionColor = Color.Black;
+                }
+
+                richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
+                richTextBox1.Focus();
 
 
-
-                //if (!hashSet.Contains(lastWord))
-                //{
-                //    Player.URL = "error.mp3";
-                //    Player.controls.play();
-
-
-                //}
-                //else
-                //{
-                //    Player.URL = "space.mp3";
-                //    Player.controls.play();
-
-                   
-                //}
             }
 
             else if (e.KeyCode == Keys.Back)
             {
-                Narrator.Narrate(richTextBox1.Text.Substring(richTextBox1.SelectionStart - 1, 1));
+                try
+                {
+                    Narrator.Narrate(richTextBox1.Text.Substring(richTextBox1.SelectionStart - 1, 1));
+                }
+                catch (Exception)
+                {
+                }           
              
             }
-
 
         }
 
@@ -153,81 +127,37 @@ namespace BrailleUrdu
             if (e.KeyCode == Keys.Left | e.KeyCode == Keys.Right)
             {
                 alphateFeedback();
-            }
-
-           
+            }          
 
         }
 
 
-        private void menuStrip1_KeyPress(object sender, KeyPressEventArgs e)
-        {
-            MessageBox.Show(((ToolStripMenuItem)sender).Text);
 
+        private void fstBox_PaintLine(object sender, FastColoredTextBoxNS.PaintLineEventArgs e)
+        {
+            if (e.LineIndex % 25 == 0)
+            {
+                e.Graphics.DrawLine(new Pen(Color.Black), e.LineRect.X, e.LineRect.Y, 600, e.LineRect.Y);
+            }
+        }
+
+        private void translateToolStripMenuItem1_Click(object sender, EventArgs e)
+        {
+            UrduTranslator ur = new UrduTranslator();
+            Formater formater = new Formater();
+            fstBox.Text = formater.Format(ur.Transat(richTextBox1.Text), 40, 25);
+            fstBox.Font = new Font("SimBraille", 18);
+        }
+
+        private void fstBox_SelectionChanged_1(object sender, EventArgs e)
+        {
+            UrduTranslator urdu = new UrduTranslator();
+            label1.Text = urdu.RTransat(fstBox.Lines[fstBox.Selection.Start.iLine]);
         }
 
         private void richTextBox1_TextChanged(object sender, EventArgs e)
         {
 
-            richTextBox2.Text = richTextBox1.Rtf;
-          
-            int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
-
-            if (lastSpace == -1)
-                lastSpace = 0;
-
-            int secondSpace = richTextBox1.Text.IndexOf(' ', richTextBox1.SelectionStart);
-
-            if (secondSpace == -1)
-                secondSpace = richTextBox1.SelectionStart;
-
-            string lastWord = richTextBox1.Text.Substring(lastSpace+1, secondSpace - lastSpace-1);
-            Text = lastWord;
-
-            //richTextBox1.Select(lastSpace, secondSpace - lastSpace);
-            //richTextBox1.SelectionColor = Color.Red;
-            //richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
-
-
-        }
-
-        private void button3_Click(object sender, EventArgs e)
-        {
-            MainScreen mainScreen = new MainScreen();
-            mainScreen.Show();
-        }
-
-        private void button4_Click(object sender, EventArgs e)
-        {
-            richTextBox1.SelectionAlignment = HorizontalAlignment.Center;
-        }
-
-        private void button5_Click(object sender, EventArgs e)
-        {
-            richTextBox2.Text = richTextBox1.Rtf; 
-        }
-
-        private void button6_Click(object sender, EventArgs e)
-        {
-            richTextBox1.Rtf = richTextBox2.Text;
-        }
-
-        private void button7_Click(object sender, EventArgs e)
-        {
-            Narrator.Narrate(richTextBox2.Text);
-        }
-
-        private void button8_Click(object sender, EventArgs e)
-        {
-            Narrator.Beep();
-        }
-
-        private void button2_Click(object sender, EventArgs e)
-        {
-            richTextBox1.Lines[2] = "ASDasd";
-            richTextBox1.Refresh();
-            //richTextBox1.Select(richTextBox1.SelectionStart, 0);
-            //richTextBox1.Rtf = richTextBox2.Text;
         }
     }
 }

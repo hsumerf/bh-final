@@ -15,44 +15,44 @@ namespace BrailleUrdu
 
         // normal contractions
 
-        Tuple.Create("ایک", "a"),
-        Tuple.Create("بہت", ">"),
-        Tuple.Create("پر", "B"),
-        Tuple.Create("تو", "P"),
-        Tuple.Create("ثابت", "T"),
-        Tuple.Create("جو", "["),
-        Tuple.Create("چاہیے", "?"),
-        Tuple.Create("حاصل", "J"),
-        Tuple.Create("خالی", "C"),
-        Tuple.Create("دونوں", ":"),
-        Tuple.Create("ڈاکٹر", "X"),
-        Tuple.Create("زرا", "D"),
-        Tuple.Create("رائے", "+"),
-        Tuple.Create("کو", "!"),
-        Tuple.Create("زیادہ", "R"),
-        Tuple.Create("سے", "]"),
-        Tuple.Create("شاید", "Z"),
-        Tuple.Create("صرف", "J"), //---------
-        Tuple.Create("ضایع", "S"),
-        Tuple.Create("طرح", "%"),
-        Tuple.Create("غرض", "&"),
-        Tuple.Create("فرض", "$"),
-        Tuple.Create("قبل", ")"),
-        Tuple.Create("کھے", "="),
-        Tuple.Create("اگر", "("),
-        Tuple.Create("لیکن", "<"),
-        Tuple.Create("میں", "F"),
-        Tuple.Create("نہیں", "Q"),
-        Tuple.Create("وہ", "K"),
-        Tuple.Create("ہے", "G"),
-        Tuple.Create("ہر", "L"),
-        Tuple.Create("اس", "M"),
-        Tuple.Create("بھ", ";"),
-        Tuple.Create("پھ", "W"),
-        Tuple.Create("تھ", "H"),
-        Tuple.Create("ٹھ", "8"),
-        Tuple.Create("جھ", "'"),
-        Tuple.Create("چھ", "i"),
+        //Tuple.Create("ایک", "a"),
+        //Tuple.Create("بہت", ">"),
+        //Tuple.Create("پر", "B"),
+        //Tuple.Create("تو", "P"),
+        //Tuple.Create("ثابت", "T"),
+        //Tuple.Create("جو", "["),
+        //Tuple.Create("چاہیے", "?"),
+        //Tuple.Create("حاصل", "J"),
+        //Tuple.Create("خالی", "C"),
+        //Tuple.Create("دونوں", ":"),
+        //Tuple.Create("ڈاکٹر", "X"),
+        //Tuple.Create("زرا", "D"),
+        //Tuple.Create("رائے", "+"),
+        //Tuple.Create("کو", "!"),
+        //Tuple.Create("زیادہ", "R"),
+        //Tuple.Create("سے", "]"),
+        //Tuple.Create("شاید", "Z"),
+        //Tuple.Create("صرف", "J"), //---------
+        //Tuple.Create("ضایع", "S"),
+        //Tuple.Create("طرح", "%"),
+        //Tuple.Create("غرض", "&"),
+        //Tuple.Create("فرض", "$"),
+        //Tuple.Create("قبل", ")"),
+        //Tuple.Create("کھے", "="),
+        //Tuple.Create("اگر", "("),
+        //Tuple.Create("لیکن", "<"),
+        //Tuple.Create("میں", "F"),
+        //Tuple.Create("نہیں", "Q"),
+        //Tuple.Create("وہ", "K"),
+        //Tuple.Create("ہے", "G"),
+        //Tuple.Create("ہر", "L"),
+        //Tuple.Create("اس", "M"),
+        //Tuple.Create("بھ", ";"),
+        //Tuple.Create("پھ", "W"),
+        //Tuple.Create("تھ", "H"),
+        //Tuple.Create("ٹھ", "8"),
+        //Tuple.Create("جھ", "'"),
+        //Tuple.Create("چھ", "i"),
 
         // reqiure chnges
 
@@ -100,16 +100,16 @@ namespace BrailleUrdu
 
         //urdu alphabates
 
-        Tuple.Create("١", "1"),
-        Tuple.Create("٢", "2"),
-        Tuple.Create("٣", "3"),
-        Tuple.Create("٤", "4"),
-        Tuple.Create("٥","5"),
-        Tuple.Create("٦", "6"),
-        Tuple.Create("٧", "7"),
-        Tuple.Create("٨", "8"),
-        Tuple.Create("٩", "9"),
-        Tuple.Create("٠", "0"),
+        //Tuple.Create("١", "1"),
+        //Tuple.Create("٢", "2"),
+        //Tuple.Create("٣", "3"),
+        //Tuple.Create("٤", "4"),
+        //Tuple.Create("٥","5"),
+        //Tuple.Create("٦", "6"),
+        //Tuple.Create("٧", "7"),
+        //Tuple.Create("٨", "8"),
+        //Tuple.Create("٩", "9"),
+        //Tuple.Create("٠", "0"),
 
         Tuple.Create("آ", ">"),      
         Tuple.Create("ا", "a"),
@@ -174,7 +174,7 @@ namespace BrailleUrdu
         };
 
 
-        public string ReplaceWithStringBuilder(string value)
+        public string Transat(string value)
         {
             value = Regex.Replace(value, @"(\d+)", "#$1");
 
@@ -187,6 +187,38 @@ namespace BrailleUrdu
             }
 
            
+
+            //for (int i = 0; i < result.Length; i++)
+            //{
+            //    if (result[i] == '\"')
+            //    {
+            //        if (Open == false)
+            //        {
+            //            result[i] = '8';
+            //            Open = true;
+            //        }
+            //        else
+            //        {
+            //            result[i] = '0';
+            //            Open = false;
+            //        }
+            //    }
+            // }
+
+            return result.ToString();
+        }
+
+        public string RTransat(string value)
+        {
+            
+            var result = new StringBuilder(value);
+
+            foreach (var item in a)
+            {
+                result.Replace(item.Item2, item.Item1);
+            }
+
+
 
             //for (int i = 0; i < result.Length; i++)
             //{

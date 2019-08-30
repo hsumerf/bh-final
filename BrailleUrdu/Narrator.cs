@@ -48,7 +48,14 @@ namespace BrailleUrdu
         {
             string result = "";
             dictionary.TryGetValue(alpha, out result);
-            audioFileReader = new AudioFileReader(result);
+            try
+            {
+                audioFileReader = new AudioFileReader(result);
+            }
+            catch (Exception)
+            {
+
+            }          
             waveOutDevice.Init(audioFileReader);
             waveOutDevice.Play();
         }
