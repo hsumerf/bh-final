@@ -199,5 +199,10 @@ namespace BrailleUrdu
                 RawHelper.SendStringToPrinter(pd.PrinterSettings.PrinterName, fstBox.Text);
             }
         }
+
+        private void redToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            richTextBox1.SelectionColor = Color.Red;
+        }
     }
 }
