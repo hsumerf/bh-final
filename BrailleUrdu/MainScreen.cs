@@ -135,8 +135,7 @@ namespace BrailleUrdu
 
         private void button2_Click(object sender, EventArgs e)
         {
-            if (fstBox.Text.Contains(Environment.NewLine))
-                MessageBox.Show("FG");
+            
         }
 
         private void fstBox_PaintLine(object sender, PaintLineEventArgs e)

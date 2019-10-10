@@ -47,7 +47,7 @@ namespace BrailleUrdu
             keysDictonary.Add('B', '0');
             keysDictonary.Add('C', 'ث');
             keysDictonary.Add('D', 'ڈ');
-            keysDictonary.Add('E', '0');
+            keysDictonary.Add('E', '\0');
             keysDictonary.Add('F', '0');
             keysDictonary.Add('G', 'غ');
             keysDictonary.Add('H', 'ح');

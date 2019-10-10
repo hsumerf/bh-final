@@ -11,6 +11,10 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Runtime.Serialization.Formatters.Binary;
 using NAudio;
 using NAudio.Wave;
 using System.Speech.Synthesis;
@@ -26,18 +30,18 @@ namespace BrailleUrdu
             InitializeComponent();
         }
 
+        string DocumentName = "";
         SpeechSynthesizer synthesizer = new SpeechSynthesizer();
         HashSet<string> hashSet = new HashSet<string>();
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            UrduKeyboard ur = new UrduKeyboard();
-
+            UrduKeyboard ur = new UrduKeyboard();  
             var list = File.ReadAllLines(@"final.txt");
             hashSet = new HashSet<string>(list);
-            installFont.RegisterFont("E:\\Brushield italic.ttf");
+            installFont.RegisterFont("simbrl.ttf");
+            fstBox.Font = new Font("SimBraille", 18);
             Narrator.Initialize();
-            // Narrator.Narrate("ababc");
 
         }
 
@@ -203,6 +207,62 @@ namespace BrailleUrdu
         private void redToolStripMenuItem_Click(object sender, EventArgs e)
         {
             richTextBox1.SelectionColor = Color.Red;
+        }
+
+        private void saveToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            FileObject file = new FileObject();
+            file.sightedText = richTextBox1.Text;
+            file.nonSightedText = fstBox.Text;
+            IFormatter formatter = new BinaryFormatter();
+
+            if (DocumentName == "")
+            {
+                SaveFileDialog res = new SaveFileDialog();
+                res.Filter = "Pak Braille |*.pkbr";
+                if (res.ShowDialog() == DialogResult.OK)
+                {
+                    var filePath = res.FileName;
+                    DocumentName = filePath;
+
+                    Stream stream = new FileStream(filePath, FileMode.Create, FileAccess.Write);
+                    formatter.Serialize(stream, file);
+                    stream.Close();
+                }
+
+            }
+            else
+            {
+                Stream stream = new FileStream(DocumentName, FileMode.Create, FileAccess.Write);
+                formatter.Serialize(stream, file);
+                stream.Close();
+            }
+          
+
+           
+        }
+
+        private void openToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+
+
+            OpenFileDialog res = new OpenFileDialog();
+            res.Filter = "Pak Braille |*.pkbr";
+
+            if (res.ShowDialog() == DialogResult.OK)
+            {
+                var filePath = res.FileName;
+
+                IFormatter formatter = new BinaryFormatter();
+                Stream stream = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+                FileObject objnew = (FileObject)formatter.Deserialize(stream);
+                stream.Close();
+
+                richTextBox1.Text = objnew.sightedText;
+                fstBox.Text = objnew.nonSightedText;
+
+            }
+
         }
     }
 }
