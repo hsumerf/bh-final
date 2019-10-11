@@ -96,6 +96,7 @@
             this.richTextBox1.KeyDown += new System.Windows.Forms.KeyEventHandler(this.richTextBox1_KeyDown);
             this.richTextBox1.KeyPress += new System.Windows.Forms.KeyPressEventHandler(this.richTextBox1_KeyPress);
             this.richTextBox1.KeyUp += new System.Windows.Forms.KeyEventHandler(this.richTextBox1_KeyUp);
+            this.richTextBox1.MouseMove += new System.Windows.Forms.MouseEventHandler(this.richTextBox1_MouseMove);
             // 
             // splitContainer1
             // 
@@ -461,7 +462,7 @@
             this.viewToolStripMenuItem1.ForeColor = System.Drawing.Color.Black;
             this.viewToolStripMenuItem1.Name = "viewToolStripMenuItem1";
             this.viewToolStripMenuItem1.Size = new System.Drawing.Size(44, 20);
-            this.viewToolStripMenuItem1.Text = "View";
+            this.viewToolStripMenuItem1.Text = "&View";
             // 
             // layoutToolStripMenuItem
             // 

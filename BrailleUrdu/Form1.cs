@@ -87,25 +87,29 @@ namespace BrailleUrdu
             {
 
 
-                int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
-                int secondSpace = richTextBox1.SelectionStart;
-                string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
-                label1.Focus();
-                richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);          
+                //int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+                //int secondSpace = richTextBox1.SelectionStart;
+                //string lastWord = richTextBox1.Text.Substring(lastSpace + 1, secondSpace - 1 - lastSpace);
+                //label1.Focus();
+                //richTextBox1.Select(lastSpace + 1, richTextBox1.SelectionStart);          
 
-                if (!hashSet.Contains(lastWord))
-                {
-                    Narrator.Beep();
-                    richTextBox1.SelectionColor = Color.Red;
-                }
-                else
-                {
-                    Narrator.Narrate(" ");
-                    richTextBox1.SelectionColor = Color.Black;
-                }
+                //if (!hashSet.Contains(lastWord))
+                //{
+                //    Narrator.Beep();
+                //    richTextBox1.SelectionColor = Color.Red;
+                //}
+                //else
+                //{
+                //    Narrator.Narrate(" ");
+                //    richTextBox1.SelectionColor = Color.Black;
+                //}
 
-                richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
-                richTextBox1.Focus();
+                //richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
+                //richTextBox1.Focus();
+
+                CheckForTypo(richTextBox1);
+
+
 
 
             }
@@ -129,7 +133,20 @@ namespace BrailleUrdu
             if (e.KeyCode == Keys.Left | e.KeyCode == Keys.Right)
             {
                 alphateFeedback();
-            }          
+            }
+
+            if (e.KeyCode == Keys.Space)
+            {
+                //richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 1);
+                //richTextBox1.SelectionColor = Color.Black;
+
+                // richTextBox1.Select(richTextBox1.SelectionStart-1 + richTextBox1.SelectionLength , 0);
+                // richTextBox1.Focus();
+
+                richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 1);
+                richTextBox1.SelectionColor = Color.Black;
+
+            }
 
         }
 
@@ -163,7 +180,7 @@ namespace BrailleUrdu
 
         private void richTextBox1_TextChanged(object sender, EventArgs e)
         {
-
+            label1.Text = WordUnderMouse(richTextBox1);
         }
 
         private void fstBox_KeyDown(object sender, KeyEventArgs e)
@@ -263,6 +280,105 @@ namespace BrailleUrdu
 
             }
 
+        }
+
+        private string WordUnderMouse(RichTextBox rch)
+        {
+            // Get the character's position.
+            int pos = rch.SelectionStart-1;
+            this.Text = pos.ToString();
+            if (pos <= 0) return "";
+
+            // Find the start of the word.
+            string txt = rch.Text;
+
+            int start_pos;
+            for (start_pos = pos; start_pos >= 0; start_pos--)
+            {
+                // Allow digits, letters, and underscores
+                // as part of the word.
+                char ch = txt[start_pos];
+                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+            }
+            start_pos++;
+
+            // Find the end of the word.
+            int end_pos;
+            for (end_pos = pos; end_pos < txt.Length; end_pos++)
+            {
+                char ch = txt[end_pos];
+                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+            }
+            end_pos--;
+
+            // Return the result.
+            if (start_pos > end_pos) return "";
+            return txt.Substring(start_pos, end_pos - start_pos + 1);
+        }
+
+        private void CheckForTypo(RichTextBox rch)
+        {
+            Narrator.Narrate(" ");
+
+            int pos = rch.SelectionStart - 1;
+            if (pos <= 0)
+                return;
+
+            string txt = rch.Text;
+
+            int start_pos;
+            for (start_pos = pos; start_pos >= 0; start_pos--)
+            {
+                char ch = txt[start_pos];
+                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+            }
+            start_pos++;
+            int end_pos;
+            for (end_pos = pos; end_pos < txt.Length; end_pos++)
+            {
+                char ch = txt[end_pos];
+                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+            }
+            end_pos--;
+            if (start_pos > end_pos)
+                return;
+
+            int lastSpace = richTextBox1.Text.LastIndexOf(' ', richTextBox1.SelectionStart - 1);
+            int secondSpace = richTextBox1.SelectionStart;
+            string lastWord = txt.Substring(start_pos, end_pos - start_pos + 1);
+            label1.Focus();
+
+            richTextBox1.Select(start_pos, end_pos - start_pos + 1);
+
+            
+
+            if (!hashSet.Contains(lastWord))
+            {
+                Narrator.Beep();              
+                richTextBox1.SelectionColor = Color.Red;
+            }
+            else
+            {
+                richTextBox1.SelectionColor = Color.Black;
+            }
+
+           
+
+            richTextBox1.Select(richTextBox1.SelectionStart + richTextBox1.SelectionLength + 1, 0);
+            richTextBox1.Focus();
+
+        }
+
+
+
+
+       
+
+        private void richTextBox1_MouseMove(object sender, MouseEventArgs e)
+        {
+          
+              //  label1.Text = WordUnderMouse(richTextBox1, e.X, e.Y);
+        
         }
     }
 }

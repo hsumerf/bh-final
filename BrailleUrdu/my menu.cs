@@ -11,8 +11,11 @@ using System.Speech.Synthesis;
 
 namespace MenuStripZ
 {
+    
+
     public class MenuStripZ : System.Windows.Forms.MenuStrip
     {
+        public string LastSelection;
 
         public MenuStripZ()
         {
@@ -24,25 +27,45 @@ namespace MenuStripZ
             this.Items[0].BackColor = Color.White;
             base.OnPaint(e);
         }
+
+        protected override void OnLeave(EventArgs e)
+        {
+            base.OnLeave(e);
+
+        }
+
+        protected override void OnMouseMove(MouseEventArgs mea)
+        {
+            base.OnMouseMove(mea);
+            
+        }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+           
+        }
     }
 
     public class CustomProfessionalRenderer : ToolStripRenderer
     {
         SpeechSynthesizer synthesizer = new SpeechSynthesizer();
-        MenuStripZ menu; 
-        
+        MenuStripZ menu;
+        string lastselection = "";
         
 
         public  CustomProfessionalRenderer(MenuStripZ menuu)
         {
             this.menu = menuu;
-          
-            synthesizer.SelectVoiceByHints(VoiceGender.Female);
-      
+            this.lastselection = menuu.LastSelection;
+            synthesizer.SelectVoiceByHints(VoiceGender.Female, VoiceAge.Teen);
+            synthesizer.SetOutputToDefaultAudioDevice();
+
 
         }
 
-        private string LastSelection;
+        
+
 
         protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
         {
@@ -58,17 +81,28 @@ namespace MenuStripZ
                 e.Graphics.FillRectangle(b2, e.Item.ContentRectangle);
                 e.Item.ForeColor = Color.White;
 
-                if (e.Item.Text != LastSelection)
+                if (e.Item.Text != lastselection)
                 {                
-                    foreach (ToolStripItem item in menu.Items)
-                    {
-                        if (item.Text == e.Item.Text)
-                            return;
-                    }
+                    //foreach (ToolStripItem item in menu.Items)
+                    //{
+                    //    if (item.Text == e.Item.Text)
+                    //        return;
+                    //}
                     synthesizer.SpeakAsyncCancelAll();
-                    synthesizer.SpeakAsync(e.Item.Text);
-                    LastSelection = e.Item.Text;
+                    if (e.Item.Text.StartsWith("&"))
+                        
+                    {
+
+                        synthesizer.SpeakAsync(e.Item.Text.Substring(1, e.Item.Text.Length - 1));
+                    }
+                    else
+                    {
+                        synthesizer.SpeakAsync(e.Item.Text);
+
+                    }
+                    menu.LastSelection = e.Item.Text;
                 }
+
             }
             else
             {

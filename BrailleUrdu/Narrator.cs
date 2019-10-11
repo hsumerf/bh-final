@@ -50,6 +50,7 @@ namespace BrailleUrdu
             {"ء","hamza.mp3"},
             {"ی","yay.mp3"},
             {"ے", "bari yay.mp3"},
+            {" ", "space.mp3"},
         };
 
         static int currentAlphabate = 0;
