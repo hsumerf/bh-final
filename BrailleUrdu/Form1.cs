@@ -32,6 +32,7 @@ namespace BrailleUrdu
 
         string DocumentName = "";
         SpeechSynthesizer synthesizer = new SpeechSynthesizer();
+
         HashSet<string> hashSet = new HashSet<string>();
 
         private void Form1_Load(object sender, EventArgs e)
@@ -53,7 +54,7 @@ namespace BrailleUrdu
             if (ModifierKeys == Keys.Control)
                 return;
 
-            richTextBox1.SelectedText =  UrduKeyboard.ConvertKey(e.KeyChar).ToString();
+            richTextBox1.SelectedText =  UrduKeyboard.convertKey(e.KeyChar).ToString();
             e.Handled = UrduKeyboard.isKeyFound;
          
         }
@@ -166,7 +167,7 @@ namespace BrailleUrdu
 
             UrduTranslator ur = new UrduTranslator();
             Formater formater = new Formater();
-            fstBox.Text = formater.Format(ur.Transat(richTextBox1.Text), 40, 25);
+            fstBox.Text = formater.Format(ur.Translate(richTextBox1.Text), 40, 25);
             fstBox.Font = new Font("SimBraille", 18);
 
             brk = true;
@@ -175,7 +176,7 @@ namespace BrailleUrdu
         private void fstBox_SelectionChanged_1(object sender, EventArgs e)
         {
             UrduTranslator urdu = new UrduTranslator();
-            label1.Text = urdu.RTransat(fstBox.Lines[fstBox.Selection.Start.iLine]);
+            label1.Text = urdu.Translate(fstBox.Lines[fstBox.Selection.Start.iLine]);
         }
 
         private void richTextBox1_TextChanged(object sender, EventArgs e)
@@ -330,14 +331,14 @@ namespace BrailleUrdu
             for (start_pos = pos; start_pos >= 0; start_pos--)
             {
                 char ch = txt[start_pos];
-                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+                if (!char.IsLetter(ch) && !(ch == '_')) break;
             }
             start_pos++;
             int end_pos;
             for (end_pos = pos; end_pos < txt.Length; end_pos++)
             {
                 char ch = txt[end_pos];
-                if (!char.IsLetterOrDigit(ch) && !(ch == '_')) break;
+                if (!char.IsLetter(ch) && !(ch == '_')) break;
             }
             end_pos--;
             if (start_pos > end_pos)
@@ -368,11 +369,7 @@ namespace BrailleUrdu
             richTextBox1.Focus();
 
         }
-
-
-
-
-       
+  
 
         private void richTextBox1_MouseMove(object sender, MouseEventArgs e)
         {

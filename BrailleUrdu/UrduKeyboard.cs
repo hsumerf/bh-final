@@ -7,12 +7,9 @@ using System.Threading.Tasks;
 
 namespace BrailleUrdu
 {
-    class UrduKeyboard
+    class UrduKeyboard : Keyboard
     {
        
-        Dictionary<char, char> keysDictonary = new Dictionary<char, char>();
-        public bool isKeyFound = false;
-        public bool enableAudio = true;
 
         public UrduKeyboard()
         {          
@@ -85,18 +82,5 @@ namespace BrailleUrdu
             keysDictonary.Add(',', '،');
             keysDictonary.Add('<', 'ِ'); //urdu zeer           
         }
-
-        public char ConvertKey(char key)
-        {
-            char val;           
-            isKeyFound = keysDictonary.TryGetValue(key, out val);
-            if (isKeyFound && enableAudio)
-            {
-
-                Narrator.Narrate(val.ToString());
-            }
-            return val;
-        }
-
     }
 }
