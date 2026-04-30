@@ -41,91 +41,57 @@ namespace BrailleUrdu
         [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
         public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
 
-        // SendBytesToPrinter()
-        // When the function is given a printer name and an unmanaged array
-        // of bytes, the function sends those bytes to the print queue.
-        // Returns true on success, false on failure.
-        public static bool SendBytesToPrinter(string szPrinterName, IntPtr pBytes, Int32 dwCount)
+        public static bool SendBytesToPrinter(string szPrinterName, IntPtr pBytes, int dwCount)
         {
-            Int32 dwError = 0, dwWritten = 0;
+            int dwWritten = 0;
             IntPtr hPrinter = new IntPtr(0);
-            DOCINFOA di = new DOCINFOA();
-            bool bSuccess = false; // Assume failure unless you specifically succeed.
-
+            RawHelper.DOCINFOA di = new RawHelper.DOCINFOA();
+            bool printer = false;
             di.pDocName = "RAW Document";
-            // Win7
             di.pDataType = "RAW";
-
-            // Win8+
-            // di.pDataType = "XPS_PASS";
-
-            // Open the printer.
-            if (OpenPrinter(szPrinterName.Normalize(), out hPrinter, IntPtr.Zero))
+            if (RawHelper.OpenPrinter(szPrinterName.Normalize(), out hPrinter, IntPtr.Zero))
             {
-                // Start a document.
-                if (StartDocPrinter(hPrinter, 1, di))
+                if (RawHelper.StartDocPrinter(hPrinter, 1, di))
                 {
-                    // Start a page.
-                    if (StartPagePrinter(hPrinter))
+                    if (RawHelper.StartPagePrinter(hPrinter))
                     {
-                        // Write your bytes.
-                        bSuccess = WritePrinter(hPrinter, pBytes, dwCount, out dwWritten);
-                        EndPagePrinter(hPrinter);
+                        printer = RawHelper.WritePrinter(hPrinter, pBytes, dwCount, out dwWritten);
+                        RawHelper.EndPagePrinter(hPrinter);
                     }
-                    EndDocPrinter(hPrinter);
+                    RawHelper.EndDocPrinter(hPrinter);
                 }
-                ClosePrinter(hPrinter);
+                RawHelper.ClosePrinter(hPrinter);
             }
-            // If you did not succeed, GetLastError may give more information
-            // about why not.
-            if (bSuccess == false)
-            {
-                dwError = Marshal.GetLastWin32Error();
-            }
-            return bSuccess;
+            if (!printer)
+                Marshal.GetLastWin32Error();
+            return printer;
         }
 
         public static bool SendFileToPrinter(string szPrinterName, string szFileName)
         {
-            // Open the file.
-            FileStream fs = new FileStream(szFileName, FileMode.Open);
-            // Create a BinaryReader on the file.
-            BinaryReader br = new BinaryReader(fs);
-            // Dim an array of bytes big enough to hold the file's contents.
-            Byte[] bytes = new Byte[fs.Length];
-            bool bSuccess = false;
-            // Your unmanaged pointer.
-            IntPtr pUnmanagedBytes = new IntPtr(0);
-            int nLength;
-
-            nLength = Convert.ToInt32(fs.Length);
-            // Read the contents of the file into the array.
-            bytes = br.ReadBytes(nLength);
-            // Allocate some unmanaged memory for those bytes.
-            pUnmanagedBytes = Marshal.AllocCoTaskMem(nLength);
-            // Copy the managed byte array into the unmanaged array.
-            Marshal.Copy(bytes, 0, pUnmanagedBytes, nLength);
-            // Send the unmanaged bytes to the printer.
-            bSuccess = SendBytesToPrinter(szPrinterName, pUnmanagedBytes, nLength);
-            // Free the unmanaged memory that you allocated earlier.
-            Marshal.FreeCoTaskMem(pUnmanagedBytes);
-            fs.Close();
-            fs.Dispose();
-            fs = null;
-            return bSuccess;
+            FileStream input = new FileStream(szFileName, FileMode.Open);
+            BinaryReader binaryReader = new BinaryReader((Stream)input);
+            byte[] numArray = new byte[input.Length];
+            IntPtr num1 = new IntPtr(0);
+            int int32 = Convert.ToInt32(input.Length);
+            byte[] source = binaryReader.ReadBytes(int32);
+            IntPtr num2 = Marshal.AllocCoTaskMem(int32);
+            IntPtr destination = num2;
+            int length = int32;
+            Marshal.Copy(source, 0, destination, length);
+            int num3 = RawHelper.SendBytesToPrinter(szPrinterName, num2, int32) ? 1 : 0;
+            Marshal.FreeCoTaskMem(num2);
+            input.Close();
+            input.Dispose();
+            return num3 != 0;
         }
+
         public static bool SendStringToPrinter(string szPrinterName, string szString)
         {
-            IntPtr pBytes;
-            Int32 dwCount;
-            // How many characters are in the string?
-            dwCount = szString.Length;
-            // Assume that the printer is expecting ANSI text, and then convert
-            // the string to ANSI text.
-            pBytes = Marshal.StringToCoTaskMemAnsi(szString);
-            // Send the converted ANSI string to the printer.
-            SendBytesToPrinter(szPrinterName, pBytes, dwCount);
-            Marshal.FreeCoTaskMem(pBytes);
+            int length = szString.Length;
+            IntPtr coTaskMemAnsi = Marshal.StringToCoTaskMemAnsi(szString);
+            RawHelper.SendBytesToPrinter(szPrinterName, coTaskMemAnsi, length);
+            Marshal.FreeCoTaskMem(coTaskMemAnsi);
             return true;
         }
     }
