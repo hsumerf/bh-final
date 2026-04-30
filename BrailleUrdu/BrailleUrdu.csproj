@@ -74,6 +74,12 @@
     <Compile Include="BrailleMapper.cs" />
     <Compile Include="LanguageSpec.cs" />
     <Compile Include="PrintInputMap.cs" />
+    <Compile Include="TactileBox.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="TactileEditorDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="DocumentSetupDialog.cs">
       <SubType>Form</SubType>
     </Compile>

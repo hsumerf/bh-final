@@ -32,7 +32,8 @@ namespace BrailleUrdu
             this.navigation.EmbossClicked        += (s, e) => new EmbossDialog(this.canvasPanel).ShowDialog(this);
             this.toolbarPanel.TextToolClicked    += (s, e)    => this.canvasPanel.ActivateTextTool();
             this.toolbarPanel.ImageToolClicked   += (s, e)    => this.canvasPanel.ActivateImageTool();
-            this.toolbarPanel.BrailleToolClicked += (s, e)    => this.canvasPanel.ActivateBrailleTool();
+            this.toolbarPanel.BrailleToolClicked  += (s, e)    => this.canvasPanel.ActivateBrailleTool();
+            this.toolbarPanel.TactileToolClicked  += (s, e)    => this.canvasPanel.ActivateTactileTool();
             this.toolbarPanel.ViewModeChanged    += (mode)    => this.canvasPanel.SetViewMode(mode);
 
             this.centerContainer.Controls.Add(this.canvasPanel);

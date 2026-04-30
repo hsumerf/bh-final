@@ -9,6 +9,7 @@ namespace BrailleUrdu
         public event EventHandler      BrailleToolClicked;
         public event EventHandler      TextToolClicked;
         public event EventHandler      ImageToolClicked;
+        public event EventHandler      TactileToolClicked;
         public event Action<string>    ViewModeChanged;
 
         public ToolbarPanel()
@@ -31,22 +32,21 @@ namespace BrailleUrdu
             var btnText    = MakeButton("T",  "Text Tool");
             var btnImage   = MakeButton("",   "Image Tool");
             var btnBraille = MakeButton("B",  "Braille Tool");
+            var btnTactile = MakeButton("",   "Tactile Graphic Tool");
 
             btnText.Click    += (s, e) => TextToolClicked?.Invoke(this, EventArgs.Empty);
             btnImage.Click   += (s, e) => ImageToolClicked?.Invoke(this, EventArgs.Empty);
             btnBraille.Click += (s, e) => BrailleToolClicked?.Invoke(this, EventArgs.Empty);
+            btnTactile.Click += (s, e) => TactileToolClicked?.Invoke(this, EventArgs.Empty);
 
             // Draw a simple landscape icon on the image button
             btnImage.Paint += (s, e) =>
             {
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                // Frame
                 using (var pen = new Pen(Color.FromArgb(80, 80, 80), 1.5f))
                     g.DrawRectangle(pen, 9, 11, 22, 18);
-                // Sun
                 g.FillEllipse(new System.Drawing.SolidBrush(Color.FromArgb(210, 155, 20)), 12, 14, 6, 6);
-                // Mountains
                 var pts = new[] {
                     new Point(10, 28), new Point(17, 19), new Point(22, 24),
                     new Point(26, 20), new Point(31, 28)
@@ -54,10 +54,28 @@ namespace BrailleUrdu
                 g.FillPolygon(new System.Drawing.SolidBrush(Color.FromArgb(70, 130, 70)), pts);
             };
 
-            // Wrap three buttons in a container so we can center it as one unit
+            // Draw a 4×4 dot-grid icon on the tactile button
+            btnTactile.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                int[] filled = { 5, 6, 9, 10 }; // indices in a 4×4 grid that are "raised"
+                for (int i = 0; i < 16; i++)
+                {
+                    int col = i % 4, row = i / 4;
+                    float cx = 10 + col * 6f;
+                    float cy = 11 + row * 6f;
+                    bool on = System.Array.IndexOf(filled, i) >= 0;
+                    float r = on ? 2.5f : 1.3f;
+                    var color = on ? Color.FromArgb(50, 50, 50) : Color.FromArgb(180, 180, 180);
+                    g.FillEllipse(new System.Drawing.SolidBrush(color), cx - r, cy - r, r * 2, r * 2);
+                }
+            };
+
+            // Wrap four buttons in a container so we can center it as one unit
             var group = new Panel
             {
-                Width  = 136,  // 3 × 40px + 2 × 8px gap
+                Width  = 184,  // 4 × 40px + 3 × 8px gap
                 Height = 40,
                 Anchor = AnchorStyles.None
             };
@@ -65,9 +83,11 @@ namespace BrailleUrdu
             btnText.Location    = new Point(0,   0);
             btnImage.Location   = new Point(48,  0);
             btnBraille.Location = new Point(96,  0);
+            btnTactile.Location = new Point(144, 0);
             group.Controls.Add(btnText);
             group.Controls.Add(btnImage);
             group.Controls.Add(btnBraille);
+            group.Controls.Add(btnTactile);
 
             Controls.Add(group);
 

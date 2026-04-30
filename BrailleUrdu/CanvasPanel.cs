@@ -286,8 +286,8 @@ namespace BrailleUrdu
                     bool show = shouldShow;
                     if (show && _viewMode != "Braille & Print")
                     {
-                        bool isBrailleCtrl = ctrl is BrailleTextBox;
-                        bool isPrintCtrl   = ctrl is PrintTextBox || ctrl is ImageBox;
+                        bool isBrailleCtrl = ctrl is BrailleTextBox || ctrl is TactileBox;
+                        bool isPrintCtrl   = ctrl is PrintTextBox  || ctrl is ImageBox;
                         if (_viewMode == "Braille" && !isBrailleCtrl) show = false;
                         if (_viewMode == "Print"   && !isPrintCtrl)   show = false;
                     }
@@ -394,6 +394,26 @@ namespace BrailleUrdu
             box.Focus();
         }
 
+        public void ActivateTactileTool()
+        {
+            using (var dlg = new TactileEditorDialog())
+            {
+                if (dlg.ShowDialog() != DialogResult.OK) return;
+
+                var origin = PageOrigin();
+                var page   = Document.CurrentPage;
+                var loc    = new Point(
+                    (int)(origin.X + MmToPx(page.MarginLeft)),
+                    (int)(origin.Y + MmToPx(page.MarginTop)));
+
+                var box = new TactileBox { Location = loc, DotGrid = dlg.ResultGrid };
+                RegisterControl(box);
+                Controls.Add(box);
+                box.BringToFront();
+                box.Focus();
+            }
+        }
+
         // ── Print rendering ───────────────────────────────────────────────────
 
         public void RenderPageToPrinter(Graphics g, DocumentPage page)
@@ -449,13 +469,19 @@ namespace BrailleUrdu
 
                 foreach (var ctrl in controls)
                 {
-                    if (!(ctrl is BrailleTextBox btb)) continue;
-
                     float baseXmm = (ctrl.Location.X - originX) / pxPerMm;
                     float baseYmm = (ctrl.Location.Y - originY) / pxPerMm;
 
-                    CollectBrailleDots(dots, btb.BrailleText, baseXmm, baseYmm,
-                        ctrl.Width / pxPerMm);
+                    if (ctrl is BrailleTextBox btb)
+                    {
+                        CollectBrailleDots(dots, btb.BrailleText, baseXmm, baseYmm,
+                            ctrl.Width / pxPerMm);
+                    }
+                    else if (ctrl is TactileBox tb && tb.DotGrid != null)
+                    {
+                        CollectTactileDots(dots, tb.DotGrid, baseXmm, baseYmm,
+                            ctrl.Width / pxPerMm, ctrl.Height / pxPerMm);
+                    }
                 }
             }
 
@@ -490,6 +516,26 @@ namespace BrailleUrdu
                     dots.Add(string.Format("{0:F2}:{1:F2}", dotX, dotY));
                 }
                 col++;
+            }
+        }
+
+        private static void CollectTactileDots(List<string> dots,
+            bool[,] grid, float baseX, float baseY, float boxWidthMm, float boxHeightMm)
+        {
+            int   cols = grid.GetLength(0);
+            int   rows = grid.GetLength(1);
+            float dotS = DocumentPage.DOT_SPACING_MM;
+            // Scale grid dots to physical box size
+            float stepX = cols > 1 ? boxWidthMm  / (cols - 1) : dotS;
+            float stepY = rows > 1 ? boxHeightMm / (rows - 1) : dotS;
+
+            for (int c = 0; c < cols; c++)
+            for (int r = 0; r < rows; r++)
+            {
+                if (!grid[c, r]) continue;
+                dots.Add(string.Format("{0:F2}:{1:F2}",
+                    baseX + c * stepX,
+                    baseY + r * stepY));
             }
         }
 
