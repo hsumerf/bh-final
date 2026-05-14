@@ -60,6 +60,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="DocumentModel.cs" />
+    <Compile Include="DocumentSerializer.cs" />
     <Compile Include="Navigation.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -96,6 +97,15 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="RawHelper.cs" />
+    <Compile Include="LineBox.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="TableBox.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="BrailleFindReplaceDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ImageBox.cs">
       <SubType>UserControl</SubType>
     </Compile>

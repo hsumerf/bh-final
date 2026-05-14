@@ -16,6 +16,11 @@ namespace BrailleUrdu
         private Button           _btnRemove;
         private Button           _btnAdd;
         private bool             _showMaster;
+        private Panel            _mainContent;
+        private bool             _panelCollapsed;
+
+        private const int FULL_W      = 215;
+        private const int COLLAPSED_W = 26;
 
         public PagesPanel(Action onPageChanged)
         {
@@ -28,7 +33,7 @@ namespace BrailleUrdu
 
         private void Build()
         {
-            Width     = 215;
+            Width     = FULL_W;
             Dock      = DockStyle.Left;
             BackColor = Color.FromArgb(225, 225, 225);
 
@@ -137,10 +142,21 @@ namespace BrailleUrdu
             footer.Controls.Add(_btnRemove);
             footer.Controls.Add(_btnAdd);
 
-            // Add in reverse dock order: Fill first, then Top and Bottom
-            Controls.Add(_content);
-            Controls.Add(header);
-            Controls.Add(footer);
+            _mainContent = new Panel { Dock = DockStyle.Fill };
+            _mainContent.Controls.Add(_content);
+            _mainContent.Controls.Add(header);
+            _mainContent.Controls.Add(footer);
+
+            Controls.Add(_mainContent);
+        }
+
+        public bool IsCollapsed => _panelCollapsed;
+
+        public void ToggleCollapse()
+        {
+            _panelCollapsed      = !_panelCollapsed;
+            _mainContent.Visible = !_panelCollapsed;
+            Width                = _panelCollapsed ? COLLAPSED_W : FULL_W;
         }
 
         // ── Tab switching ─────────────────────────────────────────────────────
@@ -259,10 +275,20 @@ namespace BrailleUrdu
             Document.CurrentPageIndex = Document.Pages.Count - 1;
             RebuildThumbnails();
             _onPageChanged?.Invoke();
+            // Scroll so the newly added thumbnail is visible
+            if (_content.Controls.Count > 0)
+                _content.ScrollControlIntoView(
+                    _content.Controls[_content.Controls.Count - 1]);
         }
 
         private void OnRemovePage(object sender, EventArgs e)
         {
+            var result = MessageBox.Show(
+                "Are you sure you want to remove this page?",
+                "Remove Page",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Warning);
+            if (result != DialogResult.Yes) return;
             Document.RemovePage(Document.CurrentPageIndex);
             RebuildThumbnails();
             _onPageChanged?.Invoke();

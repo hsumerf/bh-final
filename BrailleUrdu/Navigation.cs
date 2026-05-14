@@ -7,8 +7,24 @@ namespace BrailleUrdu
     {
         public event EventHandler NewDocumentClicked;
         public event EventHandler DocumentSetupClicked;
+        public event EventHandler StackModeChanged;
         public event EventHandler PrintClicked;
         public event EventHandler EmbossClicked;
+        public event EventHandler OpenClicked;
+        public event EventHandler SaveClicked;
+        public event EventHandler SaveAsClicked;
+        public event EventHandler ExportClicked;
+        public event EventHandler UndoClicked;
+        public event EventHandler CutClicked;
+        public event EventHandler CopyClicked;
+        public event EventHandler PasteClicked;
+        public event EventHandler DeleteClicked;
+        public event EventHandler DuplicateClicked;
+        public event EventHandler BrailleFindClicked;
+        public event EventHandler BrailleReplaceClicked;
+
+        private ToolStripMenuItem _stackModeItem;
+        public bool IsStackMode => _stackModeItem?.Checked ?? false;
 
         public Navigation()
         {
@@ -18,33 +34,32 @@ namespace BrailleUrdu
         private void BuildMenu()
         {
             // ── Top-level items ──────────────────────────────────────────────
-            var file       = new ToolStripMenuItem("&File");
-            var edit       = new ToolStripMenuItem("&Edit");
-            var layout     = new ToolStripMenuItem("&Layout");
-            var text       = new ToolStripMenuItem("&Text");
-            var braille    = new ToolStripMenuItem("&Braille");
-            var navigation = new ToolStripMenuItem("&Navigation");
-            var view       = new ToolStripMenuItem("&View");
-            var help       = new ToolStripMenuItem("&Help");
+            var file    = new ToolStripMenuItem("&File");
+            var edit    = new ToolStripMenuItem("&Edit");
+            var layout  = new ToolStripMenuItem("&Layout");
+            var text    = new ToolStripMenuItem("&Text");
+            var braille = new ToolStripMenuItem("&Braille");
+            var view    = new ToolStripMenuItem("&View");
+            var help    = new ToolStripMenuItem("&Help");
 
             this.Items.AddRange(new ToolStripItem[] {
-                file, edit, layout, text, braille, navigation, view, help
+                file, edit, layout, text, braille, view, help
             });
 
             // ── File ─────────────────────────────────────────────────────────
             file.DropDownItems.AddRange(new ToolStripItem[] {
                 NewDocItem(),
                 new ToolStripSeparator(),
-                Item("Open...",                Keys.Control | Keys.O),
+                OpenItem(),
                 Item("Open Cloud Document..."),
                 new ToolStripSeparator(),
                 Item("Import"),
                 new ToolStripSeparator(),
-                Item("Save",                   Keys.Control | Keys.S),
-                Item("Save As...",             Keys.Control | Keys.Shift | Keys.S),
+                SaveItem(),
+                SaveAsItem(),
                 Item("Save On Cloud..."),
                 new ToolStripSeparator(),
-                Item("Export..."),
+                ExportItem(),
                 new ToolStripSeparator(),
                 PrintItem(),
                 EmbossItem(),
@@ -56,14 +71,14 @@ namespace BrailleUrdu
 
             // ── Edit ─────────────────────────────────────────────────────────
             edit.DropDownItems.AddRange(new ToolStripItem[] {
-                Item("Undo",          Keys.Control | Keys.Z),
+                EditItem("Undo",      Keys.Control | Keys.Z,              () => UndoClicked),
                 new ToolStripSeparator(),
-                Item("Cut",           Keys.Control | Keys.X),
-                Item("Copy",          Keys.Control | Keys.C),
-                Item("Paste",         Keys.Control | Keys.V),
-                Item("Delete",        Keys.Delete),
+                EditItem("Cut",       Keys.Control | Keys.X,              () => CutClicked),
+                EditItem("Copy",      Keys.Control | Keys.C,              () => CopyClicked),
+                EditItem("Paste",     Keys.Control | Keys.V,              () => PasteClicked),
+                EditItem("Delete",    Keys.Delete,                         () => DeleteClicked),
                 new ToolStripSeparator(),
-                Item("Duplicate",     Keys.Control | Keys.D),
+                EditItem("Duplicate", Keys.Control | Keys.D,              () => DuplicateClicked),
                 new ToolStripSeparator(),
                 Item("Bring Front",   Keys.Control | Keys.Shift | Keys.OemCloseBrackets),
                 Item("Bring Forward", Keys.Control | Keys.OemCloseBrackets),
@@ -80,7 +95,7 @@ namespace BrailleUrdu
             layout.DropDownItems.AddRange(new ToolStripItem[] {
                 DocumentSetupItem(),
                 new ToolStripSeparator(),
-                Item("Stack Mode")
+                StackModeItem()
             });
 
             // ── Text ─────────────────────────────────────────────────────────
@@ -96,11 +111,9 @@ namespace BrailleUrdu
 
             // ── Braille ──────────────────────────────────────────────────────
             braille.DropDownItems.AddRange(new ToolStripItem[] {
-                Item("Find...",  Keys.Control | Keys.Shift | Keys.F),
-                Item("Replace",  Keys.Control | Keys.Shift | Keys.R)
+                BrailleFindItem(),
+                BrailleReplaceItem()
             });
-
-            // ── Navigation (reserved for future items) ───────────────────────
 
             // ── View ─────────────────────────────────────────────────────────
             view.DropDownItems.Add(Item("Comments..."));
@@ -145,6 +158,73 @@ namespace BrailleUrdu
         {
             var item = new ToolStripMenuItem("Emboss...");
             item.Click += (s, e) => EmbossClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        // Factory for Edit-menu items that fire a named event.
+        // The Func<EventHandler> getter is evaluated at click time so the
+        // lambda captures 'this' correctly without needing a named field.
+        private ToolStripMenuItem EditItem(string text, Keys shortcut,
+                                           Func<EventHandler> getEvent)
+        {
+            var item = new ToolStripMenuItem(text);
+            if (shortcut != Keys.None) item.ShortcutKeys = shortcut;
+            item.Click += (s, e) => getEvent()?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem OpenItem()
+        {
+            var item = new ToolStripMenuItem("Open...");
+            item.ShortcutKeys = Keys.Control | Keys.O;
+            item.Click += (s, e) => OpenClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem SaveItem()
+        {
+            var item = new ToolStripMenuItem("Save");
+            item.ShortcutKeys = Keys.Control | Keys.S;
+            item.Click += (s, e) => SaveClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem SaveAsItem()
+        {
+            var item = new ToolStripMenuItem("Save As...");
+            item.ShortcutKeys = Keys.Control | Keys.Shift | Keys.S;
+            item.Click += (s, e) => SaveAsClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem ExportItem()
+        {
+            var item = new ToolStripMenuItem("Export...");
+            item.Click += (s, e) => ExportClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem StackModeItem()
+        {
+            _stackModeItem              = new ToolStripMenuItem("Stack Mode");
+            _stackModeItem.CheckOnClick = true;
+            _stackModeItem.Click       += (s, e) => StackModeChanged?.Invoke(this, EventArgs.Empty);
+            return _stackModeItem;
+        }
+
+        private ToolStripMenuItem BrailleFindItem()
+        {
+            var item = new ToolStripMenuItem("Find...");
+            item.ShortcutKeys = Keys.Control | Keys.Shift | Keys.F;
+            item.Click += (s, e) => BrailleFindClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem BrailleReplaceItem()
+        {
+            var item = new ToolStripMenuItem("Replace...");
+            item.ShortcutKeys = Keys.Control | Keys.Shift | Keys.R;
+            item.Click += (s, e) => BrailleReplaceClicked?.Invoke(this, EventArgs.Empty);
             return item;
         }
 

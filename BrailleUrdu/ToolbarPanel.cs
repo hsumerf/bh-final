@@ -8,6 +8,8 @@ namespace BrailleUrdu
     {
         public event EventHandler      BrailleToolClicked;
         public event EventHandler      TextToolClicked;
+        public event EventHandler      LineToolClicked;
+        public event EventHandler      TableToolClicked;
         public event EventHandler      ImageToolClicked;
         public event EventHandler      TactileToolClicked;
         public event Action<string>    ViewModeChanged;
@@ -22,24 +24,54 @@ namespace BrailleUrdu
 
         private void Build()
         {
-            // Bottom border drawn on paint
             Paint += (s, e) =>
             {
                 using (var pen = new Pen(Color.FromArgb(210, 210, 210), 1))
                     e.Graphics.DrawLine(pen, 0, Height - 1, Width, Height - 1);
             };
 
-            var btnText    = MakeButton("T",  "Text Tool");
-            var btnImage   = MakeButton("",   "Image Tool");
-            var btnBraille = MakeButton("B",  "Braille Tool");
-            var btnTactile = MakeButton("",   "Tactile Graphic Tool");
+            var btnText    = MakeButton("T", "Text Tool");
+            var btnLine    = MakeButton("",  "Line Tool");
+            var btnTable   = MakeButton("",  "Table Tool");
+            var btnImage   = MakeButton("",  "Image Tool");
+            var btnBraille = MakeButton("B", "Braille Tool");
+            var btnTactile = MakeButton("",  "Tactile Graphic Tool");
 
             btnText.Click    += (s, e) => TextToolClicked?.Invoke(this, EventArgs.Empty);
+            btnLine.Click    += (s, e) => LineToolClicked?.Invoke(this, EventArgs.Empty);
+            btnTable.Click   += (s, e) => TableToolClicked?.Invoke(this, EventArgs.Empty);
             btnImage.Click   += (s, e) => ImageToolClicked?.Invoke(this, EventArgs.Empty);
             btnBraille.Click += (s, e) => BrailleToolClicked?.Invoke(this, EventArgs.Empty);
             btnTactile.Click += (s, e) => TactileToolClicked?.Invoke(this, EventArgs.Empty);
 
-            // Draw a simple landscape icon on the image button
+            // Horizontal line icon
+            btnLine.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var pen = new Pen(Color.FromArgb(70, 70, 70), 2.5f))
+                    g.DrawLine(pen, 8, 20, 32, 20);
+                using (var pen = new Pen(Color.FromArgb(70, 70, 70), 1.5f))
+                {
+                    g.DrawLine(pen, 8,  15, 8,  25);
+                    g.DrawLine(pen, 32, 15, 32, 25);
+                }
+            };
+
+            // 2×2 grid icon for table
+            btnTable.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var pen = new Pen(Color.FromArgb(70, 70, 70), 1.5f))
+                {
+                    g.DrawRectangle(pen, 8, 10, 24, 20);
+                    g.DrawLine(pen, 20, 10, 20, 30);
+                    g.DrawLine(pen,  8, 20, 32, 20);
+                }
+            };
+
+            // Landscape icon on the image button
             btnImage.Paint += (s, e) =>
             {
                 var g = e.Graphics;
@@ -54,12 +86,12 @@ namespace BrailleUrdu
                 g.FillPolygon(new System.Drawing.SolidBrush(Color.FromArgb(70, 130, 70)), pts);
             };
 
-            // Draw a 4×4 dot-grid icon on the tactile button
+            // 4×4 dot-grid icon on the tactile button
             btnTactile.Paint += (s, e) =>
             {
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                int[] filled = { 5, 6, 9, 10 }; // indices in a 4×4 grid that are "raised"
+                int[] filled = { 5, 6, 9, 10 };
                 for (int i = 0; i < 16; i++)
                 {
                     int col = i % 4, row = i / 4;
@@ -72,19 +104,23 @@ namespace BrailleUrdu
                 }
             };
 
-            // Wrap four buttons in a container so we can center it as one unit
+            // 6 buttons × 40px + 5 gaps × 8px = 280
             var group = new Panel
             {
-                Width  = 184,  // 4 × 40px + 3 × 8px gap
+                Width  = 280,
                 Height = 40,
                 Anchor = AnchorStyles.None
             };
 
             btnText.Location    = new Point(0,   0);
-            btnImage.Location   = new Point(48,  0);
-            btnBraille.Location = new Point(96,  0);
-            btnTactile.Location = new Point(144, 0);
+            btnLine.Location    = new Point(48,  0);
+            btnTable.Location   = new Point(96,  0);
+            btnImage.Location   = new Point(144, 0);
+            btnBraille.Location = new Point(192, 0);
+            btnTactile.Location = new Point(240, 0);
             group.Controls.Add(btnText);
+            group.Controls.Add(btnLine);
+            group.Controls.Add(btnTable);
             group.Controls.Add(btnImage);
             group.Controls.Add(btnBraille);
             group.Controls.Add(btnTactile);
@@ -112,7 +148,6 @@ namespace BrailleUrdu
             cbView.SelectedIndexChanged += (s, e) =>
                 ViewModeChanged?.Invoke(cbView.SelectedItem?.ToString() ?? "Both");
 
-            // Right-side container — stays anchored to the right edge
             var right = new Panel
             {
                 Width  = 150,
@@ -124,7 +159,6 @@ namespace BrailleUrdu
 
             Controls.Add(right);
 
-            // Re-center tool-button group; keep right panel near the right edge
             Resize += (s, e) =>
             {
                 group.Location = new Point(
@@ -135,8 +169,7 @@ namespace BrailleUrdu
                     Width - right.Width - 8,
                     (Height - right.Height) / 2);
 
-                // Lay out label and combobox vertically centred inside the right panel
-                lblView.Location = new Point(0,  (right.Height - lblView.Height) / 2 + 1);
+                lblView.Location = new Point(0, (right.Height - lblView.Height) / 2 + 1);
                 cbView.Location  = new Point(lblView.Right + 4,
                                              (right.Height - cbView.Height) / 2);
             };

@@ -26,14 +26,29 @@ namespace BrailleUrdu
 
             // ── Center container: toolbar on top, canvas fills the rest ───────
             // (add Fill first; Top docks first because it is added last)
-            this.navigation.NewDocumentClicked    += (s, e) => this.OnNewDocument();
-            this.navigation.DocumentSetupClicked  += (s, e) => new DocumentSetupDialog(this.canvasPanel, this.pagesPanel).ShowDialog(this);
+            this.navigation.NewDocumentClicked   += (s, e) => this.OnNewDocument();
+            this.navigation.DocumentSetupClicked += (s, e) => this.OnDocumentSetup();
             this.navigation.PrintClicked         += (s, e) => new BhPrintDialog(this.canvasPanel).ShowDialog(this);
             this.navigation.EmbossClicked        += (s, e) => new EmbossDialog(this.canvasPanel).ShowDialog(this);
+            this.navigation.OpenClicked          += (s, e) => this.OnOpen();
+            this.navigation.SaveClicked          += (s, e) => this.OnSave();
+            this.navigation.SaveAsClicked        += (s, e) => this.OnSaveAs();
+            this.navigation.ExportClicked        += (s, e) => this.OnExport();
+            this.navigation.UndoClicked              += (s, e) => this.canvasPanel.EditUndo();
+            this.navigation.BrailleFindClicked       += (s, e) => this.OnBrailleFind();
+            this.navigation.BrailleReplaceClicked    += (s, e) => this.OnBrailleReplace();
+            this.navigation.CutClicked           += (s, e) => this.canvasPanel.EditCut();
+            this.navigation.CopyClicked          += (s, e) => this.canvasPanel.EditCopy();
+            this.navigation.PasteClicked         += (s, e) => this.canvasPanel.EditPaste();
+            this.navigation.DeleteClicked        += (s, e) => this.canvasPanel.EditDelete();
+            this.navigation.DuplicateClicked     += (s, e) => this.canvasPanel.EditDuplicate();
+            this.navigation.StackModeChanged     += (s, e) => this.canvasPanel.StackMode = this.navigation.IsStackMode;
             this.toolbarPanel.TextToolClicked    += (s, e)    => this.canvasPanel.ActivateTextTool();
+            this.toolbarPanel.LineToolClicked    += (s, e)    => this.canvasPanel.ActivateLineTool();
             this.toolbarPanel.ImageToolClicked   += (s, e)    => this.canvasPanel.ActivateImageTool();
             this.toolbarPanel.BrailleToolClicked  += (s, e)    => this.canvasPanel.ActivateBrailleTool();
             this.toolbarPanel.TactileToolClicked  += (s, e)    => this.canvasPanel.ActivateTactileTool();
+            this.toolbarPanel.TableToolClicked    += (s, e)    => this.canvasPanel.ActivateTableTool();
             this.toolbarPanel.ViewModeChanged    += (mode)    => this.canvasPanel.SetViewMode(mode);
 
             this.centerContainer.Controls.Add(this.canvasPanel);

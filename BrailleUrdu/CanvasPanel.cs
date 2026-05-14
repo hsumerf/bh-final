@@ -41,6 +41,22 @@ namespace BrailleUrdu
             }
         }
 
+        // ── Stack mode ────────────────────────────────────────────────────────
+        public bool StackMode { get; set; } = false;
+
+        // ── Multi-selection & rubber-band ────────────────────────────────────
+        private readonly List<Control> _selectedControls = new List<Control>();
+        public IReadOnlyList<Control> SelectedControls => _selectedControls;
+        private bool  _rubberBanding;
+        private Point _rubberStart;
+        private Point _rubberEnd;
+
+        // ── Edit state ────────────────────────────────────────────────────────
+        private Control            _focused;
+        private readonly List<string> _undoStack = new List<string>();
+        private string             _clipboard;
+        private const int          MAX_UNDO = 50;
+
         public CanvasPanel()
         {
             SetStyle(ControlStyles.Selectable, true);
@@ -50,6 +66,7 @@ namespace BrailleUrdu
             AutoScroll     = true;
             TabStop        = true;
             UpdateScrollSize();
+            SelectionChanged += ctrl => _focused = ctrl;
         }
 
         // ── Coordinate helpers ────────────────────────────────────────────────
@@ -64,6 +81,19 @@ namespace BrailleUrdu
             PAGE_PADDING);
 
         public PointF PageOriginPx => PageOrigin();
+
+        public RectangleF MarginBoundsPx
+        {
+            get {
+                var page = Document.CurrentPage;
+                var o    = PageOriginPx;
+                return new RectangleF(
+                    o.X + MmToPx(page.MarginLeft),
+                    o.Y + MmToPx(page.MarginTop),
+                    PageWidthPx  - MmToPx(page.MarginLeft) - MmToPx(page.MarginRight),
+                    PageHeightPx - MmToPx(page.MarginTop)  - MmToPx(page.MarginBottom));
+            }
+        }
 
         private void UpdateScrollSize()
         {
@@ -106,6 +136,19 @@ namespace BrailleUrdu
 
             // Elements
             RenderElements(g, px, py);
+
+            // Rubber-band selection rectangle
+            if (_rubberBanding)
+            {
+                var r = ClientToContent(MakeClientRect(_rubberStart, _rubberEnd));
+                if (r.Width > 2 || r.Height > 2)
+                {
+                    using (var fill = new SolidBrush(Color.FromArgb(40, 51, 153, 255)))
+                        g.FillRectangle(fill, r);
+                    using (var pen = new Pen(Color.DodgerBlue, 1f) { DashStyle = DashStyle.Dash })
+                        g.DrawRectangle(pen, r);
+                }
+            }
         }
 
         private void DrawMarginGuides(Graphics g, float px, float py, float pw, float ph)
@@ -213,8 +256,33 @@ namespace BrailleUrdu
             }
         }
 
+        // ── Selection helpers ─────────────────────────────────────────────────
+
+        private void ClearSelection()
+        {
+            foreach (var c in _selectedControls)
+                SetSelected(c, false);
+            _selectedControls.Clear();
+        }
+
+        private static void SetSelected(Control ctrl, bool selected)
+        {
+            if (ctrl is BrailleTextBox b)   b.IsSelected = selected;
+            else if (ctrl is PrintTextBox p) p.IsSelected = selected;
+        }
+
+        private static Rectangle MakeClientRect(Point a, Point b) => new Rectangle(
+            Math.Min(a.X, b.X), Math.Min(a.Y, b.Y),
+            Math.Abs(a.X - b.X), Math.Abs(a.Y - b.Y));
+
+        private Rectangle ClientToContent(Rectangle r) => new Rectangle(
+            r.X - AutoScrollPosition.X, r.Y - AutoScrollPosition.Y, r.Width, r.Height);
+
         // Fires whenever the user selects a different element (null = canvas clicked, nothing selected)
         public event Action<Control> SelectionChanged;
+
+        // Fires whenever the document content changes (add, move, resize, edit, delete, undo)
+        public event EventHandler DocumentChanged;
 
         // ── Page-control registry ─────────────────────────────────────────────
 
@@ -225,9 +293,18 @@ namespace BrailleUrdu
                 _pageControls[page] = new List<Control>();
             _pageControls[page].Add(ctrl);
 
-            ctrl.GotFocus += (s, e) => SelectionChanged?.Invoke(ctrl);
+            ctrl.GotFocus += (s, e) =>
+            {
+                if (!_selectedControls.Contains(ctrl))
+                {
+                    ClearSelection();
+                    if (!ctrl.IsDisposed) { _selectedControls.Add(ctrl); SetSelected(ctrl, true); }
+                    SelectionChanged?.Invoke(ctrl);
+                }
+            };
+            ctrl.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
+            ctrl.SizeChanged     += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
 
-            // Keep registry clean when a control is deleted by the user
             ctrl.Disposed += (s, e) =>
             {
                 if (_pageControls.TryGetValue(page, out var list))
@@ -318,6 +395,7 @@ namespace BrailleUrdu
                 _pageControls.Remove(page);
             }
 
+            ClearSelection();
             UpdateScrollSize();
             Invalidate();
         }
@@ -330,18 +408,48 @@ namespace BrailleUrdu
 
         // ── Tools ─────────────────────────────────────────────────────────────
 
+        // When StackMode is on, returns a location directly below the lowest
+        // PrintTextBox or BrailleTextBox on the current page; falls back to
+        // the margin top-left when no such box exists yet.
+        private Point StackLocation()
+        {
+            var origin = PageOrigin();
+            var page   = Document.CurrentPage;
+            int defaultX = (int)(origin.X + MmToPx(page.MarginLeft));
+            int defaultY = (int)(origin.Y + MmToPx(page.MarginTop));
+
+            if (!_pageControls.TryGetValue(page, out var controls))
+                return new Point(defaultX, defaultY);
+
+            Control lowest  = null;
+            int     maxBot  = int.MinValue;
+            foreach (var ctrl in controls)
+            {
+                if (!(ctrl is PrintTextBox || ctrl is BrailleTextBox)) continue;
+                int bot = ctrl.Bottom;
+                if (bot > maxBot) { maxBot = bot; lowest = ctrl; }
+            }
+
+            return lowest != null
+                ? new Point(lowest.Left, lowest.Bottom)
+                : new Point(defaultX, defaultY);
+        }
+
         public void ActivateTextTool()
         {
             var origin = PageOrigin();
             var page   = Document.CurrentPage;
-            var loc    = new Point(
-                (int)(origin.X + MmToPx(page.MarginLeft)),
-                (int)(origin.Y + MmToPx(page.MarginTop)));
+            var loc    = StackMode
+                ? StackLocation()
+                : new Point(
+                    (int)(origin.X + MmToPx(page.MarginLeft)),
+                    (int)(origin.Y + MmToPx(page.MarginTop)));
             var box = new PrintTextBox { Location = loc };
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
             box.Focus();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void ActivateImageTool()
@@ -368,6 +476,7 @@ namespace BrailleUrdu
                 Controls.Add(box);
                 box.BringToFront();
                 box.Focus();
+                DocumentChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -379,9 +488,11 @@ namespace BrailleUrdu
 
             var origin = PageOrigin();
             var page   = Document.CurrentPage;
-            var loc    = new Point(
-                (int)(origin.X + MmToPx(page.MarginLeft)),
-                (int)(origin.Y + MmToPx(page.MarginTop)));
+            var loc    = StackMode
+                ? StackLocation()
+                : new Point(
+                    (int)(origin.X + MmToPx(page.MarginLeft)),
+                    (int)(origin.Y + MmToPx(page.MarginTop)));
 
             var box = new BrailleTextBox
             {
@@ -392,6 +503,45 @@ namespace BrailleUrdu
             Controls.Add(box);
             box.BringToFront();
             box.Focus();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void ActivateLineTool()
+        {
+            var origin = PageOrigin();
+            var page   = Document.CurrentPage;
+            int x = (int)(origin.X + MmToPx(page.MarginLeft));
+            int y = (int)(origin.Y + MmToPx(page.MarginTop));
+            int w = (int)(PageWidthPx - MmToPx(page.MarginLeft) - MmToPx(page.MarginRight));
+
+            var box = new LineBox { Location = new Point(x, y), Size = new Size(w, 20) };
+            RegisterControl(box);
+            Controls.Add(box);
+            box.BringToFront();
+            box.Focus();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void ActivateTableTool()
+        {
+            var origin = PageOrigin();
+            var page   = Document.CurrentPage;
+            int x = (int)(origin.X + MmToPx(page.MarginLeft));
+            int y = (int)(origin.Y + MmToPx(page.MarginTop));
+            int w = (int)(PageWidthPx - MmToPx(page.MarginLeft) - MmToPx(page.MarginRight));
+
+            var box = new TableBox
+            {
+                Location = new Point(x, y),
+                Size     = new Size(w, 80),
+                RowSpec  = "1-1",
+                ColSpec  = "1-1"
+            };
+            RegisterControl(box);
+            Controls.Add(box);
+            box.BringToFront();
+            box.Focus();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void ActivateTactileTool()
@@ -411,6 +561,7 @@ namespace BrailleUrdu
                 Controls.Add(box);
                 box.BringToFront();
                 box.Focus();
+                DocumentChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -539,11 +690,293 @@ namespace BrailleUrdu
             }
         }
 
+        // ── Edit operations ───────────────────────────────────────────────────
+
+        private void PushUndo()
+        {
+            _undoStack.Add(DocumentSerializer.SnapshotPage(Document.CurrentPage, this));
+            if (_undoStack.Count > MAX_UNDO) _undoStack.RemoveAt(0);
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void EditUndo()
+        {
+            if (_undoStack.Count == 0) return;
+            string snap = _undoStack[_undoStack.Count - 1];
+            _undoStack.RemoveAt(_undoStack.Count - 1);
+            DocumentSerializer.RestorePageSnapshot(snap, Document.CurrentPage, this);
+            _focused = null;
+            SelectionChanged?.Invoke(null);
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void EditDelete()
+        {
+            if (_focused == null || _focused.IsDisposed) return;
+            PushUndo();
+            var ctrl = _focused;
+            _focused = null;
+            SelectionChanged?.Invoke(null);
+            Controls.Remove(ctrl);
+            ctrl.Dispose();
+        }
+
+        public void EditCut()
+        {
+            if (_focused == null || _focused.IsDisposed) return;
+            _clipboard = DocumentSerializer.SerializeControl(_focused, this);
+            PushUndo();
+            var ctrl = _focused;
+            _focused = null;
+            SelectionChanged?.Invoke(null);
+            Controls.Remove(ctrl);
+            ctrl.Dispose();
+        }
+
+        public void EditCopy()
+        {
+            if (_focused == null || _focused.IsDisposed) return;
+            _clipboard = DocumentSerializer.SerializeControl(_focused, this);
+        }
+
+        public void EditPaste()
+        {
+            if (string.IsNullOrEmpty(_clipboard)) return;
+            PushUndo();
+            var ctrl = DocumentSerializer.DeserializeControl(_clipboard, this);
+            if (ctrl == null) return;
+            ctrl.Location = new Point(ctrl.Location.X + 20, ctrl.Location.Y + 20);
+            RegisterControl(ctrl);
+            Controls.Add(ctrl);
+            ctrl.BringToFront();
+            ctrl.Focus();
+        }
+
+        public void EditDuplicate()
+        {
+            if (_focused == null || _focused.IsDisposed) return;
+            PushUndo();
+            string xml  = DocumentSerializer.SerializeControl(_focused, this);
+            var    ctrl = DocumentSerializer.DeserializeControl(xml, this);
+            if (ctrl == null) return;
+            ctrl.Location = new Point(_focused.Location.X + 20, _focused.Location.Y + 20);
+            RegisterControl(ctrl);
+            Controls.Add(ctrl);
+            ctrl.BringToFront();
+            ctrl.Focus();
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
             Focus();
-            SelectionChanged?.Invoke(null); // nothing selected
+            ClearSelection();
+            SelectionChanged?.Invoke(null);
+            _rubberStart   = e.Location;
+            _rubberEnd     = e.Location;
+            _rubberBanding = true;
+            Capture        = true;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!_rubberBanding) return;
+            _rubberEnd = e.Location;
+            Invalidate();
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            base.OnMouseUp(e);
+            if (!_rubberBanding) return;
+            _rubberBanding = false;
+            Capture        = false;
+            var rubber = MakeClientRect(_rubberStart, e.Location);
+            if (rubber.Width > 4 || rubber.Height > 4)
+            {
+                var content = ClientToContent(rubber);
+                foreach (Control ctrl in Controls)
+                {
+                    if (!ctrl.Visible || !ctrl.Enabled) continue;
+                    if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox)) continue;
+                    if (!content.IntersectsWith(ctrl.Bounds)) continue;
+                    SetSelected(ctrl, true);
+                    if (!_selectedControls.Contains(ctrl)) _selectedControls.Add(ctrl);
+                }
+                if (_selectedControls.Count == 1)
+                    SelectionChanged?.Invoke(_selectedControls[0]);
+                else if (_selectedControls.Count > 1)
+                    SelectionChanged?.Invoke(null);
+            }
+            Invalidate();
+        }
+
+        // ── Serialization helpers ─────────────────────────────────────────────
+
+        // px per mm at the current zoom and screen DPI
+        public float PxPerMm => MmToPx(1f);
+
+        // Returns a snapshot of the controls registered for a given page.
+        public System.Collections.Generic.IEnumerable<System.Windows.Forms.Control>
+            GetControlsForPage(DocumentPage page)
+        {
+            return _pageControls.TryGetValue(page, out var list)
+                ? list.ToArray()
+                : new System.Windows.Forms.Control[0];
+        }
+
+        // Registers and adds a control for a specific page (used when loading a file).
+        public void LoadControlForPage(DocumentPage page,
+                                       System.Windows.Forms.Control ctrl)
+        {
+            if (!_pageControls.ContainsKey(page))
+                _pageControls[page] = new List<System.Windows.Forms.Control>();
+            _pageControls[page].Add(ctrl);
+
+            ctrl.GotFocus += (s, e) =>
+            {
+                if (!_selectedControls.Contains(ctrl))
+                {
+                    ClearSelection();
+                    if (!ctrl.IsDisposed) { _selectedControls.Add(ctrl); SetSelected(ctrl, true); }
+                    SelectionChanged?.Invoke(ctrl);
+                }
+            };
+            ctrl.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
+            ctrl.SizeChanged     += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
+            ctrl.Disposed        += (s, e) =>
+            {
+                if (_pageControls.TryGetValue(page, out var list))
+                    list.Remove(ctrl);
+            };
+
+            ctrl.Visible = false; // PageChanged() sets correct visibility
+            Controls.Add(ctrl);
+        }
+
+        // Returns every BrailleTextBox across all pages (regular + masters).
+        public System.Collections.Generic.IEnumerable<BrailleTextBox> GetAllBrailleBoxes()
+        {
+            var result = new List<BrailleTextBox>();
+            foreach (var page in Document.Pages)
+                if (_pageControls.TryGetValue(page, out var ctrls))
+                    foreach (var c in ctrls)
+                        if (c is BrailleTextBox b) result.Add(b);
+            foreach (var master in new[] { Document.MasterOdd, Document.MasterEven })
+                if (master != null && _pageControls.TryGetValue(master, out var ctrls))
+                    foreach (var c in ctrls)
+                        if (c is BrailleTextBox b) result.Add(b);
+            return result;
+        }
+
+        // Removes and disposes all managed controls (called before loading a new file).
+        public void ClearAll()
+        {
+            var all = new List<System.Windows.Forms.Control>();
+            foreach (var kvp in _pageControls)
+                all.AddRange(kvp.Value);
+            _pageControls.Clear();
+            foreach (var ctrl in all)
+            {
+                if (ctrl.Parent == this) Controls.Remove(ctrl);
+                if (!ctrl.IsDisposed) ctrl.Dispose();
+            }
+            _selectedControls.Clear();
+        }
+
+        // Renders a page's controls to a new Bitmap (page size at current zoom).
+        public System.Drawing.Bitmap RenderPageToBitmap(DocumentPage page)
+        {
+            int pw  = Math.Max(1, (int)Math.Ceiling(PageWidthPx));
+            int ph  = Math.Max(1, (int)Math.Ceiling(PageHeightPx));
+            var bmp = new System.Drawing.Bitmap(pw, ph);
+
+            using (var g = System.Drawing.Graphics.FromImage(bmp))
+            {
+                g.Clear(System.Drawing.Color.White);
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+
+                if (!_pageControls.TryGetValue(page, out var controls))
+                    return bmp;
+
+                var   origin  = PageOrigin();
+                float pxPerMm = MmToPx(1f);
+
+                foreach (var ctrl in controls)
+                {
+                    float x  = ctrl.Location.X - origin.X;
+                    float y  = ctrl.Location.Y - origin.Y;
+                    var   rc = new System.Drawing.RectangleF(x, y, ctrl.Width, ctrl.Height);
+
+                    if (ctrl is PrintTextBox ptb)
+                    {
+                        if (!ptb.FillTransparent)
+                            using (var b = new System.Drawing.SolidBrush(ptb.FillColor))
+                                g.FillRectangle(b, rc);
+
+                        if (!string.IsNullOrEmpty(ptb.DisplayText))
+                        {
+                            using (var font  = new System.Drawing.Font(ptb.FontFamily,
+                                                   ptb.FontSizePt, ptb.TextFontStyle,
+                                                   System.Drawing.GraphicsUnit.Point))
+                            using (var brush = new System.Drawing.SolidBrush(ptb.TextColor))
+                            {
+                                var fmt = new System.Drawing.StringFormat
+                                {
+                                    Alignment     = ptb.HTextAlign,
+                                    LineAlignment = ptb.VTextAlign
+                                };
+                                if (ptb.IsRightToLeft)
+                                    fmt.FormatFlags |= System.Drawing.StringFormatFlags.DirectionRightToLeft;
+                                g.DrawString(ptb.DisplayText, font, brush, rc, fmt);
+                            }
+                        }
+
+                        if (ptb.BorderWidth > 0)
+                            using (var pen = new System.Drawing.Pen(ptb.BorderColor, ptb.BorderWidth))
+                            {
+                                if (ptb.BorderTop)
+                                    g.DrawLine(pen, rc.Left, rc.Top,    rc.Right, rc.Top);
+                                if (ptb.BorderBottom)
+                                    g.DrawLine(pen, rc.Left, rc.Bottom, rc.Right, rc.Bottom);
+                                if (ptb.BorderLeft)
+                                    g.DrawLine(pen, rc.Left, rc.Top,    rc.Left,  rc.Bottom);
+                                if (ptb.BorderRight)
+                                    g.DrawLine(pen, rc.Right, rc.Top,   rc.Right, rc.Bottom);
+                            }
+                    }
+                    else if (ctrl is BrailleTextBox btb && !string.IsNullOrEmpty(btb.BrailleText))
+                    {
+                        float ptSize = MmToPx(DocumentPage.LINE_HEIGHT_MM) * 0.72f;
+                        using (var font  = new System.Drawing.Font("SimBraille",
+                                               Math.Max(1f, ptSize),
+                                               System.Drawing.GraphicsUnit.Pixel))
+                        using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                            g.DrawString(btb.BrailleText, font, brush, rc);
+                    }
+                    else if (ctrl is ImageBox ib && ib.SourceImage != null)
+                    {
+                        g.DrawImage(ib.SourceImage, rc);
+                    }
+                    else if (ctrl is TactileBox tb && tb.DotGrid != null)
+                    {
+                        int   cols   = tb.DotGrid.GetLength(0);
+                        int   rows   = tb.DotGrid.GetLength(1);
+                        float sp     = DocumentPage.DOT_SPACING_MM * pxPerMm;
+                        float radius = sp * 0.35f;
+                        using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                            for (int row = 0; row < rows; row++)
+                            for (int col = 0; col < cols; col++)
+                                if (tb.DotGrid[col, row])
+                                    g.FillEllipse(brush,
+                                        x + col * sp - radius, y + row * sp - radius,
+                                        radius * 2, radius * 2);
+                    }
+                }
+            }
+
+            return bmp;
         }
 
         // ── Resize ────────────────────────────────────────────────────────────

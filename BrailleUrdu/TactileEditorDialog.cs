@@ -69,10 +69,12 @@ namespace BrailleUrdu
                 BackColor = Color.FromArgb(230, 230, 230)
             };
 
-            var btnDraw   = MakeToolBtn("Draw",   "Pen — click or drag to set/clear dots");
+            var btnDraw   = MakeToolBtn("Draw",   "Pen — click or drag to set dots");
             var btnImport = MakeToolBtn("Import", "Import image and convert to dot pattern");
+            var btnEraser = MakeToolBtn("Eraser", "Eraser — click or drag to clear dots");
             btnDraw.Location   = new Point(10, 12);
             btnImport.Location = new Point(10, 62);
+            btnEraser.Location = new Point(10, 112);
 
             // Pen icon on Draw button
             btnDraw.Paint += (s, e) =>
@@ -89,12 +91,11 @@ namespace BrailleUrdu
                 }
             };
 
-            // Dot-grid icon on Import button
+            // Arrow-down icon on Import button
             btnImport.Paint += (s, e) =>
             {
                 var g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                // Arrow down
                 using (var pen = new Pen(Color.FromArgb(60, 60, 60), 2f))
                 {
                     g.DrawLine(pen, 25, 10, 25, 22);
@@ -104,17 +105,51 @@ namespace BrailleUrdu
                 }
             };
 
+            // Eraser icon on Eraser button
+            btnEraser.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var pen   = new Pen(Color.FromArgb(60, 60, 60), 1.5f))
+                using (var fill  = new SolidBrush(Color.FromArgb(230, 180, 180)))
+                using (var fill2 = new SolidBrush(Color.FromArgb(200, 200, 200)))
+                {
+                    // Eraser body (parallelogram)
+                    var body = new[] {
+                        new Point(14, 24), new Point(34, 24),
+                        new Point(38, 16), new Point(18, 16) };
+                    g.FillPolygon(fill, body);
+                    g.DrawPolygon(pen, body);
+                    // Pink left face
+                    var face = new[] {
+                        new Point(14, 24), new Point(18, 16),
+                        new Point(18, 13), new Point(14, 21) };
+                    g.FillPolygon(fill2, face);
+                    // Base line
+                    g.DrawLine(pen, 12, 25, 36, 25);
+                }
+            };
+
             // Highlight Draw as default active
             btnDraw.BackColor = Color.White;
 
             btnDraw.Click += (s, e) =>
             {
-                btnDraw.BackColor   = Color.White;
-                btnImport.BackColor = Color.FromArgb(230, 230, 230);
+                _gridView.EraseMode  = false;
+                btnDraw.BackColor    = Color.White;
+                btnEraser.BackColor  = Color.FromArgb(230, 230, 230);
+                btnImport.BackColor  = Color.FromArgb(230, 230, 230);
             };
             btnImport.Click += (s, e) => DoImport();
+            btnEraser.Click += (s, e) =>
+            {
+                _gridView.EraseMode  = true;
+                btnEraser.BackColor  = Color.White;
+                btnDraw.BackColor    = Color.FromArgb(230, 230, 230);
+                btnImport.BackColor  = Color.FromArgb(230, 230, 230);
+            };
 
-            tools.Controls.AddRange(new Control[] { btnDraw, btnImport });
+            tools.Controls.AddRange(new Control[] { btnDraw, btnImport, btnEraser });
 
             // ── Scrollable grid area ───────────────────────────────────────────
             _scroll = new Panel
@@ -265,6 +300,13 @@ namespace BrailleUrdu
             private bool _drawing;
             private bool _drawOn; // true = set dot, false = clear dot
 
+            private bool _eraseMode;
+            public bool EraseMode
+            {
+                get => _eraseMode;
+                set { _eraseMode = value; Cursor = value ? Cursors.Default : Cursors.Cross; }
+            }
+
             public DotGridPanel(bool[,] dots, int cols, int rows)
             {
                 _dots = dots; _cols = cols; _rows = rows;
@@ -310,7 +352,7 @@ namespace BrailleUrdu
                 if (e.Button != MouseButtons.Left) return;
                 int col = e.X / _dotPx, row = e.Y / _dotPx;
                 if (col < 0 || col >= _cols || row < 0 || row >= _rows) return;
-                _drawOn  = !_dots[col, row]; // first dot determines draw vs erase
+                _drawOn  = EraseMode ? false : !_dots[col, row];
                 _drawing = true;
                 Capture  = true;
                 _dots[col, row] = _drawOn;
