@@ -12,86 +12,107 @@ namespace BrailleUrdu
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            if (!PromptPassword()) return;
+            if (!ActivationManager.IsActivated())
+            {
+                string localIp = ActivationManager.GetLocalIp();
+                string key     = ActivationManager.DeriveKey(localIp);
+                bool   sent    = ActivationManager.SendRequest(localIp, key);
+
+                using (var dlg = new ActivationDialog(sent))
+                    if (dlg.ShowDialog() != DialogResult.OK) return;
+            }
 
             Application.Run(new Form1());
         }
-
-        private static bool PromptPassword()
-        {
-            using (var dlg = new PasswordDialog())
-                return dlg.ShowDialog() == DialogResult.OK;
-        }
     }
 
-    internal class PasswordDialog : Form
+    internal class ActivationDialog : Form
     {
         private readonly TextBox _tb;
 
-        internal PasswordDialog()
+        internal ActivationDialog(bool emailSent)
         {
-            Text            = "BH Braille Designer";
+            Text            = "BH Braille Designer – Activation";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition   = FormStartPosition.CenterScreen;
-            ClientSize      = new Size(320, 140);
+            ClientSize      = new Size(420, 210);
             MaximizeBox     = false;
             MinimizeBox     = false;
             ShowInTaskbar   = false;
             BackColor       = Color.FromArgb(242, 242, 242);
 
-            var lbl = new Label
+            string statusMsg = emailSent
+                ? "An activation request has been sent.\r\n"
+                + "You will receive your activation key by email.\r\n"
+                + "Once you have it, enter it below and click Activate."
+                : "Could not send activation request automatically.\r\n"
+                + "Please contact the developer to obtain your activation key,\r\n"
+                + "then enter it below and click Activate.";
+
+            var lblStatus = new Label
             {
-                Text      = "Enter password to continue:",
-                Location  = new Point(16, 20),
-                Size      = new Size(288, 20),
-                Font      = new Font("Segoe UI", 9.5f)
+                Text      = statusMsg,
+                Location  = new Point(16, 16),
+                Size      = new Size(388, 66),
+                Font      = new Font("Segoe UI", 9f)
+            };
+
+            var lblKey = new Label
+            {
+                Text      = "Activation Key:",
+                Location  = new Point(16, 96),
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 9f)
             };
 
             _tb = new TextBox
             {
-                Location        = new Point(16, 48),
-                Size            = new Size(288, 24),
-                Font            = new Font("Segoe UI", 10f),
-                PasswordChar    = '●',
-                UseSystemPasswordChar = false
+                Location        = new Point(16, 116),
+                Size            = new Size(388, 26),
+                Font            = new Font("Segoe UI", 10.5f),
+                CharacterCasing = CharacterCasing.Upper
             };
 
-            var btnOK = new Button
+            var btnActivate = new Button
             {
-                Text      = "OK",
-                Location  = new Point(136, 90),
-                Size      = new Size(80, 28),
+                Text      = "Activate",
+                Location  = new Point(212, 162),
+                Size      = new Size(96, 28),
                 FlatStyle = FlatStyle.System
             };
-            var btnCancel = new Button
+
+            var btnExit = new Button
             {
-                Text         = "Cancel",
-                Location     = new Point(224, 90),
-                Size         = new Size(80, 28),
+                Text         = "Exit",
+                Location     = new Point(316, 162),
+                Size         = new Size(88, 28),
                 FlatStyle    = FlatStyle.System,
                 DialogResult = DialogResult.Cancel
             };
 
-            btnOK.Click += (s, e) =>
+            btnActivate.Click += (s, e) =>
             {
-                if (_tb.Text == "B01t@yHur00f")
+                if (ActivationManager.TryActivate(_tb.Text))
                 {
                     DialogResult = DialogResult.OK;
                     Close();
                 }
                 else
                 {
-                    MessageBox.Show("Incorrect password.", "Access Denied",
-                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    _tb.Clear();
+                    MessageBox.Show(
+                        "Invalid activation key. Please check and try again.",
+                        "Activation Failed",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    _tb.SelectAll();
                     _tb.Focus();
                 }
             };
 
-            AcceptButton = btnOK;
-            CancelButton = btnCancel;
+            AcceptButton = btnActivate;
+            CancelButton = btnExit;
 
-            Controls.AddRange(new Control[] { lbl, _tb, btnOK, btnCancel });
+            Controls.AddRange(new Control[] { lblStatus, lblKey, _tb, btnActivate, btnExit });
         }
 
         protected override void OnShown(EventArgs e)
