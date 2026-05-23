@@ -13,7 +13,7 @@ namespace BrailleUrdu
         private static int   LinePx  => (int)(DocumentPage.LINE_HEIGHT_MM * PxPerMm);
 
         private const int HANDLE_SIZE = 10;
-        private const int PAD         = 8;
+        private const int PAD         = 12;
 
         // ── Content & cursor ─────────────────────────────────────────────────
         private string _text            = "";
@@ -73,8 +73,8 @@ namespace BrailleUrdu
                 ControlStyles.Selectable                   |
                 ControlStyles.UserPaint                    |
                 ControlStyles.AllPaintingInWmPaint         |
-                ControlStyles.OptimizedDoubleBuffer        |
                 ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
 
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
@@ -172,11 +172,25 @@ namespace BrailleUrdu
             }));
         }
 
+        // ── Transparency ──────────────────────────────────────────────────────
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x20; return cp; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x84 && m.Result == (IntPtr)(-1)) m.Result = (IntPtr)1;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
         // ── Paint ─────────────────────────────────────────────────────────────
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.SmoothingMode = SmoothingMode.None;
 
             DrawSearchHighlight(g);
             DrawBrailleSelection(g);
@@ -266,12 +280,13 @@ namespace BrailleUrdu
         private void DrawBrailleDots(Graphics g)
         {
             float dotSpacePx = DocumentPage.DOT_SPACING_MM * PxPerMm;
-            float dotRad     = Math.Max(2f, dotSpacePx * 0.38f);
+            float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
             float cellW      = CellPx;
             float lineH      = LinePx;
             int col = 0, row = 0;
 
-            using (var brush = new SolidBrush(Color.Black))
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
             {
                 foreach (char c in _text)
                 {
@@ -294,6 +309,7 @@ namespace BrailleUrdu
                     col++;
                 }
             }
+            g.SmoothingMode = SmoothingMode.None;
         }
 
         // ── Caret ─────────────────────────────────────────────────────────────

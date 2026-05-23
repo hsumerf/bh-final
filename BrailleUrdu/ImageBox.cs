@@ -27,20 +27,36 @@ namespace BrailleUrdu
             _selected   = true;
 
             SetStyle(ControlStyles.UserPaint
-                   | ControlStyles.OptimizedDoubleBuffer
-                   | ControlStyles.AllPaintingInWmPaint, true);
+                   | ControlStyles.AllPaintingInWmPaint
+                   | ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
+            BackColor = Color.Transparent;
         }
+
+        // ── Transparency ──────────────────────────────────────────────────────
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x20; return cp; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x84 && m.Result == (IntPtr)(-1)) m.Result = (IntPtr)1;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
 
         // ── Paint ─────────────────────────────────────────────────────────────
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode   = SmoothingMode.AntiAlias;
             g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
 
             g.DrawImage(SourceImage, 0, 0, Width, Height);
 
+            g.SmoothingMode = SmoothingMode.None;
             if (_selected)
             {
                 using (var pen = new Pen(Color.DodgerBlue, 1.5f))

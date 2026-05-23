@@ -4,7 +4,7 @@ using System.Windows.Forms;
 
 namespace BrailleUrdu
 {
-    public class BrailleFindReplaceDialog : Form
+    public class TextFindReplaceDialog : Form
     {
         private readonly CanvasPanel _canvas;
         private readonly bool        _isReplace;
@@ -13,7 +13,7 @@ namespace BrailleUrdu
         private TextBox _tbReplace;
         private Label   _lblStatus;
 
-        public BrailleFindReplaceDialog(CanvasPanel canvas, bool isReplace)
+        public TextFindReplaceDialog(CanvasPanel canvas, bool isReplace)
         {
             _canvas    = canvas;
             _isReplace = isReplace;
@@ -22,7 +22,7 @@ namespace BrailleUrdu
 
         private void BuildUI()
         {
-            Text            = _isReplace ? "Find & Replace — Braille" : "Find — Braille";
+            Text            = _isReplace ? "Find & Replace — Text" : "Find — Text";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             MaximizeBox     = false;
             MinimizeBox     = false;
@@ -36,7 +36,7 @@ namespace BrailleUrdu
 
             // ── Find row ─────────────────────────────────────────────────────
             Controls.Add(new Label { Text = "Find:", Location = new Point(16, y + 3), AutoSize = true });
-            _tbFind = MakeBrailleInputBox(new Point(80, y), new Size(290, 24));
+            _tbFind = MakeLanguageInputBox(new Point(80, y), new Size(290, 24));
             _tbFind.KeyDown += (s, e) => { if (e.KeyCode == Keys.Return) DoFind(); };
             Controls.Add(_tbFind);
             y += 40;
@@ -45,7 +45,7 @@ namespace BrailleUrdu
             if (_isReplace)
             {
                 Controls.Add(new Label { Text = "Replace:", Location = new Point(16, y + 3), AutoSize = true });
-                _tbReplace = MakeBrailleInputBox(new Point(80, y), new Size(290, 24));
+                _tbReplace = MakeLanguageInputBox(new Point(80, y), new Size(290, 24));
                 Controls.Add(_tbReplace);
                 y += 40;
             }
@@ -53,9 +53,9 @@ namespace BrailleUrdu
             // ── Buttons ───────────────────────────────────────────────────────
             var btnFind = new Button
             {
-                Text     = _isReplace ? "Find All" : "Find All",
-                Location = new Point(16, y),
-                Size     = new Size(100, 28),
+                Text      = "Find All",
+                Location  = new Point(16, y),
+                Size      = new Size(100, 28),
                 FlatStyle = FlatStyle.System
             };
             btnFind.Click += (s, e) => DoFind();
@@ -100,48 +100,57 @@ namespace BrailleUrdu
             CancelButton = btnClose;
         }
 
-        // Creates a TextBox that shows SimBraille font and converts every
-        // keystroke to the matching braille unicode character on the fly.
-        private static TextBox MakeBrailleInputBox(Point loc, Size sz)
+        // Creates a TextBox wired to the current document language:
+        // correct font, RTL direction, and PrintInputMap key conversion.
+        private static TextBox MakeLanguageInputBox(Point loc, Size sz)
         {
-            var tb = new TextBox { Location = loc, Size = sz, Font = new Font("SimBraille", 11f) };
+            bool   isRtl      = LanguageInfo.RtlFor(Document.Language);
+            string fontFamily = LanguageInfo.FontFor(Document.Language);
+
+            var tb = new TextBox
+            {
+                Location    = loc,
+                Size        = sz,
+                Font        = new Font(fontFamily, 12f),
+                RightToLeft = isRtl ? RightToLeft.Yes : RightToLeft.No,
+                TextAlign   = isRtl ? HorizontalAlignment.Right : HorizontalAlignment.Left
+            };
+
+            // pendingRef[0] holds the multi-char accumulation buffer for PrintInputMap
+            var pendingRef = new[] { "" };
+
             tb.KeyPress += (s, e) =>
             {
-                if (e.KeyChar < ' ') return; // pass through Backspace, Enter, Ctrl+keys
-                string br = BrailleMapper.ToBraille(e.KeyChar);
-                if (br.Length > 0)
-                {
-                    int sel = tb.SelectionStart;
-                    int len = tb.SelectionLength;
-                    tb.Text           = tb.Text.Remove(sel, len).Insert(sel, br);
-                    tb.SelectionStart = sel + br.Length;
-                }
-                e.Handled = true; // suppress original character
-            };
-            return tb;
-        }
+                if (e.KeyChar < ' ') return; // let Backspace, Enter, Ctrl+keys through
+                string output = Document.PrintMap.Convert(ref pendingRef[0], e.KeyChar);
+                if (output == null) { e.Handled = true; return; } // still accumulating
 
-        // Converts typed text to braille unicode via BrailleMapper.
-        // Braille characters (U+2800–U+28FF) are passed through unchanged.
-        private static string ConvertToBraille(string input)
-        {
-            if (string.IsNullOrEmpty(input)) return "";
-            var sb = new System.Text.StringBuilder();
-            foreach (char c in input)
+                int sel = tb.SelectionStart;
+                int len = tb.SelectionLength;
+                tb.Text           = tb.Text.Remove(sel, len).Insert(sel, output);
+                tb.SelectionStart = sel + output.Length;
+                e.Handled = true;
+            };
+
+            tb.LostFocus += (s, e) =>
             {
-                if (c >= '⠀' && c <= '⣿') { sb.Append(c); continue; }
-                string b = BrailleMapper.ToBraille(c);
-                if (b.Length > 0) sb.Append(b);
-            }
-            return sb.ToString();
+                if (string.IsNullOrEmpty(pendingRef[0])) return;
+                string flushed = Document.PrintMap.Flush(ref pendingRef[0]);
+                if (flushed.Length == 0) return;
+                int sel = tb.SelectionStart;
+                tb.Text           = tb.Text.Insert(sel, flushed);
+                tb.SelectionStart = sel + flushed.Length;
+            };
+
+            return tb;
         }
 
         private void DoFind()
         {
-            foreach (var box in _canvas.GetAllBrailleBoxes())
+            foreach (var box in _canvas.GetAllPrintBoxes())
                 box.ClearSearchHighlight();
 
-            string pattern = ConvertToBraille(_tbFind.Text);
+            string pattern = _tbFind.Text;
             if (string.IsNullOrEmpty(pattern))
             {
                 _lblStatus.Text = "Enter text to find.";
@@ -149,9 +158,9 @@ namespace BrailleUrdu
             }
 
             int count = 0;
-            foreach (var box in _canvas.GetAllBrailleBoxes())
+            foreach (var box in _canvas.GetAllPrintBoxes())
             {
-                if (box.BrailleText.IndexOf(pattern, StringComparison.Ordinal) >= 0)
+                if (box.DisplayText.IndexOf(pattern, StringComparison.Ordinal) >= 0)
                 {
                     box.SetSearchHighlight(pattern);
                     count++;
@@ -164,8 +173,8 @@ namespace BrailleUrdu
 
         private void DoReplaceAll()
         {
-            string pattern     = ConvertToBraille(_tbFind.Text);
-            string replacement = ConvertToBraille(_tbReplace?.Text ?? "");
+            string pattern     = _tbFind.Text;
+            string replacement = _tbReplace?.Text ?? "";
             if (string.IsNullOrEmpty(pattern))
             {
                 _lblStatus.Text = "Enter text to find.";
@@ -173,11 +182,11 @@ namespace BrailleUrdu
             }
 
             int count = 0;
-            foreach (var box in _canvas.GetAllBrailleBoxes())
+            foreach (var box in _canvas.GetAllPrintBoxes())
             {
-                if (box.BrailleText.IndexOf(pattern, StringComparison.Ordinal) >= 0)
+                if (box.DisplayText.IndexOf(pattern, StringComparison.Ordinal) >= 0)
                 {
-                    box.BrailleText = box.BrailleText.Replace(pattern, replacement);
+                    box.DisplayText = box.DisplayText.Replace(pattern, replacement);
                     box.ClearSearchHighlight();
                     count++;
                 }
@@ -187,9 +196,15 @@ namespace BrailleUrdu
                 : string.Format("Replaced in {0} box(es).", count);
         }
 
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            _tbFind.Focus();
+        }
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
-            foreach (var box in _canvas.GetAllBrailleBoxes())
+            foreach (var box in _canvas.GetAllPrintBoxes())
                 box.ClearSearchHighlight();
             base.OnFormClosing(e);
         }

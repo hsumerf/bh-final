@@ -41,8 +41,8 @@ namespace BrailleUrdu
                 ControlStyles.Selectable                   |
                 ControlStyles.UserPaint                    |
                 ControlStyles.AllPaintingInWmPaint         |
-                ControlStyles.OptimizedDoubleBuffer        |
                 ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
             TabStop      = true;
@@ -50,12 +50,26 @@ namespace BrailleUrdu
             MinimumSize  = new Size(40, 40);
         }
 
+        // ── Transparency ──────────────────────────────────────────────────────
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x20; return cp; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x84 && m.Result == (IntPtr)(-1)) m.Result = (IntPtr)1;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
         // ── Paint ─────────────────────────────────────────────────────────────
 
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.SmoothingMode = SmoothingMode.None;
 
             if (_cols > 0 && _rows > 0)
             {
@@ -63,6 +77,7 @@ namespace BrailleUrdu
                 float spY = (float)(Height - PAD * 2) / _rows;
                 float r   = Math.Max(1.2f, Math.Min(spX, spY) * 0.38f);
 
+                g.SmoothingMode = SmoothingMode.AntiAlias;
                 using (var brush = new SolidBrush(Color.Black))
                 {
                     for (int c = 0; c < _cols; c++)
@@ -74,6 +89,7 @@ namespace BrailleUrdu
                         g.FillEllipse(brush, cx - r, cy - r, r * 2, r * 2);
                     }
                 }
+                g.SmoothingMode = SmoothingMode.None;
             }
 
             if (Focused)

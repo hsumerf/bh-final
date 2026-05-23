@@ -22,6 +22,9 @@ namespace BrailleUrdu
         public event EventHandler DuplicateClicked;
         public event EventHandler BrailleFindClicked;
         public event EventHandler BrailleReplaceClicked;
+        public event EventHandler InsertPageNumberClicked;
+        public event EventHandler TextFindClicked;
+        public event EventHandler TextReplaceClicked;
 
         private ToolStripMenuItem _stackModeItem;
         public bool IsStackMode => _stackModeItem?.Checked ?? false;
@@ -99,12 +102,14 @@ namespace BrailleUrdu
             });
 
             // ── Text ─────────────────────────────────────────────────────────
-            var insertSymbol = Item("Insert Symbol");
-            insertSymbol.DropDownItems.Add(Item("Page Number"));
+            var insertSymbol   = Item("Insert Symbol");
+            var pageNumberItem = new ToolStripMenuItem("Page Number");
+            pageNumberItem.Click += (s, e) => InsertPageNumberClicked?.Invoke(this, EventArgs.Empty);
+            insertSymbol.DropDownItems.Add(pageNumberItem);
 
             text.DropDownItems.AddRange(new ToolStripItem[] {
-                Item("Find...",    Keys.Control | Keys.F),
-                Item("Replace...", Keys.Control | Keys.R),
+                TextFindItem(),
+                TextReplaceItem(),
                 new ToolStripSeparator(),
                 insertSymbol
             });
@@ -210,6 +215,22 @@ namespace BrailleUrdu
             _stackModeItem.CheckOnClick = true;
             _stackModeItem.Click       += (s, e) => StackModeChanged?.Invoke(this, EventArgs.Empty);
             return _stackModeItem;
+        }
+
+        private ToolStripMenuItem TextFindItem()
+        {
+            var item = new ToolStripMenuItem("Find...");
+            item.ShortcutKeys = Keys.Control | Keys.F;
+            item.Click += (s, e) => TextFindClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem TextReplaceItem()
+        {
+            var item = new ToolStripMenuItem("Replace...");
+            item.ShortcutKeys = Keys.Control | Keys.R;
+            item.Click += (s, e) => TextReplaceClicked?.Invoke(this, EventArgs.Empty);
+            return item;
         }
 
         private ToolStripMenuItem BrailleFindItem()

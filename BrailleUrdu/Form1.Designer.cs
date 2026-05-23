@@ -37,6 +37,9 @@ namespace BrailleUrdu
             this.navigation.UndoClicked              += (s, e) => this.canvasPanel.EditUndo();
             this.navigation.BrailleFindClicked       += (s, e) => this.OnBrailleFind();
             this.navigation.BrailleReplaceClicked    += (s, e) => this.OnBrailleReplace();
+            this.navigation.InsertPageNumberClicked  += (s, e) => this.canvasPanel.InsertPageNumber();
+            this.navigation.TextFindClicked          += (s, e) => this.OnTextFind();
+            this.navigation.TextReplaceClicked       += (s, e) => this.OnTextReplace();
             this.navigation.CutClicked           += (s, e) => this.canvasPanel.EditCut();
             this.navigation.CopyClicked          += (s, e) => this.canvasPanel.EditCopy();
             this.navigation.PasteClicked         += (s, e) => this.canvasPanel.EditPaste();

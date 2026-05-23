@@ -51,6 +51,9 @@ namespace BrailleUrdu
         private Point _rubberStart;
         private Point _rubberEnd;
 
+        // Tracks the page origin X so controls can be shifted when the window is resized
+        private float _lastOriginX;
+
         // ── Edit state ────────────────────────────────────────────────────────
         private Control            _focused;
         private readonly List<string> _undoStack = new List<string>();
@@ -67,6 +70,7 @@ namespace BrailleUrdu
             TabStop        = true;
             UpdateScrollSize();
             SelectionChanged += ctrl => _focused = ctrl;
+            _lastOriginX = PageOrigin().X;
         }
 
         // ── Coordinate helpers ────────────────────────────────────────────────
@@ -267,8 +271,9 @@ namespace BrailleUrdu
 
         private static void SetSelected(Control ctrl, bool selected)
         {
-            if (ctrl is BrailleTextBox b)   b.IsSelected = selected;
-            else if (ctrl is PrintTextBox p) p.IsSelected = selected;
+            if (ctrl is BrailleTextBox b)        b.IsSelected = selected;
+            else if (ctrl is PrintTextBox p)      p.IsSelected = selected;
+            else if (ctrl is PageNumberBox pnb)   pnb.IsSelected = selected;
         }
 
         private static Rectangle MakeClientRect(Point a, Point b) => new Rectangle(
@@ -364,7 +369,7 @@ namespace BrailleUrdu
                     if (show && _viewMode != "Braille & Print")
                     {
                         bool isBrailleCtrl = ctrl is BrailleTextBox || ctrl is TactileBox;
-                        bool isPrintCtrl   = ctrl is PrintTextBox  || ctrl is ImageBox;
+                        bool isPrintCtrl   = ctrl is PrintTextBox  || ctrl is ImageBox || ctrl is PageNumberBox;
                         if (_viewMode == "Braille" && !isBrailleCtrl) show = false;
                         if (_viewMode == "Print"   && !isPrintCtrl)   show = false;
                     }
@@ -394,6 +399,12 @@ namespace BrailleUrdu
                 }
                 _pageControls.Remove(page);
             }
+
+            // Update page number displays on visible master overlays
+            foreach (var kvp in _pageControls)
+                foreach (var ctrl in kvp.Value)
+                    if (ctrl is PageNumberBox pnb && ctrl.Visible)
+                        pnb.UpdateNumber(isOnMaster ? -1 : pageIdx);
 
             ClearSelection();
             UpdateScrollSize();
@@ -565,12 +576,57 @@ namespace BrailleUrdu
             }
         }
 
+        public void InsertPageNumber()
+        {
+            var origin = PageOrigin();
+
+            foreach (var masterPage in new[] { Document.MasterOdd, Document.MasterEven })
+            {
+                if (_pageControls.TryGetValue(masterPage, out var existing) &&
+                    existing.Exists(c => c is PageNumberBox))
+                    continue; // already has one
+
+                var pnb = new PageNumberBox();
+                int x   = (int)(origin.X + MmToPx(15f) - pnb.Width);
+                int y   = (int)(origin.Y + MmToPx(15f) - pnb.Height);
+                pnb.Location = new Point(Math.Max(0, x), Math.Max(0, y));
+
+                var pg = masterPage; // explicit capture for closures
+                if (!_pageControls.ContainsKey(pg))
+                    _pageControls[pg] = new List<Control>();
+                _pageControls[pg].Add(pnb);
+
+                pnb.GotFocus += (s, e) =>
+                {
+                    if (!_selectedControls.Contains(pnb))
+                    {
+                        ClearSelection();
+                        if (!pnb.IsDisposed) { _selectedControls.Add(pnb); SetSelected(pnb, true); }
+                        SelectionChanged?.Invoke(pnb);
+                    }
+                };
+                pnb.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
+                pnb.SizeChanged     += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
+                pnb.Disposed        += (s, e) =>
+                {
+                    if (_pageControls.TryGetValue(pg, out var list))
+                        list.Remove(pnb);
+                };
+
+                Controls.Add(pnb);
+            }
+
+            PageChanged();
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
         // ── Print rendering ───────────────────────────────────────────────────
 
         public void RenderPageToPrinter(Graphics g, DocumentPage page)
         {
-            // Work in mm so font point-sizes and positions stay physically correct
-            g.PageUnit = System.Drawing.GraphicsUnit.Millimeter;
+            // Work in mm so positions and font sizes are physically correct on paper
+            g.PageUnit       = System.Drawing.GraphicsUnit.Millimeter;
+            g.SmoothingMode  = SmoothingMode.AntiAlias;
 
             float screenPxPerMm = SCREEN_DPI / MM_PER_INCH * _zoom;
             float originX       = Math.Max(PAGE_PADDING, (ClientSize.Width - PageWidthPx) / 2f);
@@ -578,29 +634,134 @@ namespace BrailleUrdu
 
             if (!_pageControls.TryGetValue(page, out var controls)) return;
 
-            foreach (var ctrl in controls)
+            // Also collect master-page overlay controls for this page index
+            int pageIdx  = Document.Pages.IndexOf(page);
+            var master   = (pageIdx % 2 == 0) ? Document.MasterOdd : Document.MasterEven;
+            var allCtrls = new System.Collections.Generic.List<Control>(controls);
+            if (_pageControls.TryGetValue(master, out var masterCtrls))
+                allCtrls.AddRange(masterCtrls);
+
+            foreach (var ctrl in allCtrls)
             {
                 float mmX = (ctrl.Location.X - originX) / screenPxPerMm;
                 float mmY = (ctrl.Location.Y - originY) / screenPxPerMm;
                 float mmW = ctrl.Width  / screenPxPerMm;
                 float mmH = ctrl.Height / screenPxPerMm;
+                var   rc  = new RectangleF(mmX, mmY, mmW, mmH);
 
                 if (ctrl is PrintTextBox ptb)
                 {
-                    if (string.IsNullOrEmpty(ptb.DisplayText)) continue;
-                    using (var font  = new Font(ptb.FontFamily, ptb.FontSizePt, GraphicsUnit.Point))
+                    if (!ptb.FillTransparent)
+                        using (var b = new SolidBrush(ptb.FillColor))
+                            g.FillRectangle(b, rc);
+
+                    if (!string.IsNullOrEmpty(ptb.DisplayText))
+                        using (var font  = new Font(ptb.FontFamily, ptb.FontSizePt,
+                                                    ptb.TextFontStyle, GraphicsUnit.Point))
+                        using (var brush = new SolidBrush(ptb.TextColor))
+                        {
+                            var fmt = new StringFormat
+                            {
+                                Alignment     = ptb.HTextAlign,
+                                LineAlignment = ptb.VTextAlign
+                            };
+                            if (ptb.IsRightToLeft)
+                                fmt.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
+                            g.DrawString(ptb.DisplayText, font, brush, rc, fmt);
+                        }
+
+                    if (ptb.BorderWidth > 0)
+                        using (var pen = new Pen(ptb.BorderColor,
+                                                 ptb.BorderWidth / screenPxPerMm))
+                        {
+                            if (ptb.BorderTop)
+                                g.DrawLine(pen, rc.Left,  rc.Top,    rc.Right, rc.Top);
+                            if (ptb.BorderBottom)
+                                g.DrawLine(pen, rc.Left,  rc.Bottom, rc.Right, rc.Bottom);
+                            if (ptb.BorderLeft)
+                                g.DrawLine(pen, rc.Left,  rc.Top,    rc.Left,  rc.Bottom);
+                            if (ptb.BorderRight)
+                                g.DrawLine(pen, rc.Right, rc.Top,    rc.Right, rc.Bottom);
+                        }
+                }
+                else if (ctrl is BrailleTextBox btb && !string.IsNullOrEmpty(btb.BrailleText))
+                {
+                    // SimBraille: size the em-height to one braille line (with same 0.72 scale as bitmap renderer)
+                    float brailleMm = DocumentPage.LINE_HEIGHT_MM * 0.72f;
+                    using (var font  = new Font("SimBraille", brailleMm, GraphicsUnit.Millimeter))
                     using (var brush = new SolidBrush(Color.Black))
-                    {
-                        var fmt = new StringFormat(StringFormat.GenericTypographic);
-                        if (ptb.IsRightToLeft)
-                            fmt.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
-                        g.DrawString(ptb.DisplayText, font, brush,
-                            new RectangleF(mmX, mmY, mmW, mmH), fmt);
-                    }
+                        g.DrawString(btb.BrailleText, font, brush, rc);
                 }
                 else if (ctrl is ImageBox ib && ib.SourceImage != null)
                 {
-                    g.DrawImage(ib.SourceImage, mmX, mmY, mmW, mmH);
+                    g.DrawImage(ib.SourceImage, rc);
+                }
+                else if (ctrl is TactileBox tb && tb.DotGrid != null)
+                {
+                    int   cols   = tb.DotGrid.GetLength(0);
+                    int   rows   = tb.DotGrid.GetLength(1);
+                    float dotS   = DocumentPage.DOT_SPACING_MM;
+                    float radius = dotS * 0.35f;
+                    using (var brush = new SolidBrush(Color.Black))
+                        for (int r = 0; r < rows; r++)
+                        for (int c = 0; c < cols; c++)
+                            if (tb.DotGrid[c, r])
+                                g.FillEllipse(brush,
+                                    mmX + c * dotS - radius,
+                                    mmY + r * dotS - radius,
+                                    radius * 2, radius * 2);
+                }
+                else if (ctrl is LineBox lb)
+                {
+                    float thick = Math.Max(0.1f, lb.LineThickness / screenPxPerMm);
+                    using (var pen = new Pen(lb.LineColor, thick))
+                    {
+                        if (lb.Direction == LineBox.LineDirection.Horizontal)
+                            g.DrawLine(pen, mmX, mmY + mmH / 2f, mmX + mmW, mmY + mmH / 2f);
+                        else
+                            g.DrawLine(pen, mmX + mmW / 2f, mmY, mmX + mmW / 2f, mmY + mmH);
+                    }
+                }
+                else if (ctrl is TableBox tab)
+                {
+                    float thick = Math.Max(0.1f, tab.LineThickness / screenPxPerMm);
+                    using (var pen = new Pen(tab.LineColor, thick))
+                    {
+                        g.DrawRectangle(pen, mmX, mmY, mmW, mmH);
+
+                        var rows   = tab.RowSizes;
+                        float sumR = 0; foreach (var v in rows) sumR += v;
+                        float yOff = 0;
+                        for (int i = 0; i < rows.Length - 1; i++)
+                        {
+                            yOff += rows[i] / sumR * mmH;
+                            g.DrawLine(pen, mmX, mmY + yOff, mmX + mmW, mmY + yOff);
+                        }
+
+                        var cols   = tab.ColSizes;
+                        float sumC = 0; foreach (var v in cols) sumC += v;
+                        float xOff = 0;
+                        for (int i = 0; i < cols.Length - 1; i++)
+                        {
+                            xOff += cols[i] / sumC * mmW;
+                            g.DrawLine(pen, mmX + xOff, mmY, mmX + xOff, mmY + mmH);
+                        }
+                    }
+                }
+                else if (ctrl is PageNumberBox pnb)
+                {
+                    using (var font  = new Font("Segoe UI", 9.5f, GraphicsUnit.Point))
+                    using (var brush = new SolidBrush(Color.Black))
+                    {
+                        var fmt = new StringFormat
+                        {
+                            Alignment     = StringAlignment.Center,
+                            LineAlignment = StringAlignment.Center
+                        };
+                        // Show the actual page number (1-based) on printed output
+                        string text = (pageIdx + 1).ToString();
+                        g.DrawString(text, font, brush, rc, fmt);
+                    }
                 }
             }
         }
@@ -710,60 +871,81 @@ namespace BrailleUrdu
             DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        // Returns all selected controls when a multi-selection exists,
+        // otherwise the single focused control, otherwise an empty list.
+        private List<Control> SelectedTargets()
+        {
+            if (_selectedControls.Count > 0)
+                return new List<Control>(_selectedControls);
+            if (_focused != null && !_focused.IsDisposed)
+                return new List<Control> { _focused };
+            return new List<Control>();
+        }
+
         public void EditDelete()
         {
-            if (_focused == null || _focused.IsDisposed) return;
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
             PushUndo();
-            var ctrl = _focused;
+            _selectedControls.Clear();
             _focused = null;
             SelectionChanged?.Invoke(null);
-            Controls.Remove(ctrl);
-            ctrl.Dispose();
+            foreach (var ctrl in targets) { Controls.Remove(ctrl); ctrl.Dispose(); }
         }
 
         public void EditCut()
         {
-            if (_focused == null || _focused.IsDisposed) return;
-            _clipboard = DocumentSerializer.SerializeControl(_focused, this);
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            _clipboard = DocumentSerializer.SerializeControls(targets, this);
             PushUndo();
-            var ctrl = _focused;
+            _selectedControls.Clear();
             _focused = null;
             SelectionChanged?.Invoke(null);
-            Controls.Remove(ctrl);
-            ctrl.Dispose();
+            foreach (var ctrl in targets) { Controls.Remove(ctrl); ctrl.Dispose(); }
         }
 
         public void EditCopy()
         {
-            if (_focused == null || _focused.IsDisposed) return;
-            _clipboard = DocumentSerializer.SerializeControl(_focused, this);
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            _clipboard = DocumentSerializer.SerializeControls(targets, this);
         }
 
         public void EditPaste()
         {
             if (string.IsNullOrEmpty(_clipboard)) return;
             PushUndo();
-            var ctrl = DocumentSerializer.DeserializeControl(_clipboard, this);
-            if (ctrl == null) return;
-            ctrl.Location = new Point(ctrl.Location.X + 20, ctrl.Location.Y + 20);
-            RegisterControl(ctrl);
-            Controls.Add(ctrl);
-            ctrl.BringToFront();
-            ctrl.Focus();
+            var ctrls     = DocumentSerializer.DeserializeControls(_clipboard, this);
+            Control last  = null;
+            foreach (var ctrl in ctrls)
+            {
+                ctrl.Location = new Point(ctrl.Location.X + 20, ctrl.Location.Y + 20);
+                RegisterControl(ctrl);
+                Controls.Add(ctrl);
+                ctrl.BringToFront();
+                last = ctrl;
+            }
+            if (last != null) last.Focus();
         }
 
         public void EditDuplicate()
         {
-            if (_focused == null || _focused.IsDisposed) return;
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
             PushUndo();
-            string xml  = DocumentSerializer.SerializeControl(_focused, this);
-            var    ctrl = DocumentSerializer.DeserializeControl(xml, this);
-            if (ctrl == null) return;
-            ctrl.Location = new Point(_focused.Location.X + 20, _focused.Location.Y + 20);
-            RegisterControl(ctrl);
-            Controls.Add(ctrl);
-            ctrl.BringToFront();
-            ctrl.Focus();
+            string xml    = DocumentSerializer.SerializeControls(targets, this);
+            var    ctrls  = DocumentSerializer.DeserializeControls(xml, this);
+            Control last  = null;
+            foreach (var ctrl in ctrls)
+            {
+                ctrl.Location = new Point(ctrl.Location.X + 20, ctrl.Location.Y + 20);
+                RegisterControl(ctrl);
+                Controls.Add(ctrl);
+                ctrl.BringToFront();
+                last = ctrl;
+            }
+            if (last != null) last.Focus();
         }
 
         protected override void OnMouseDown(MouseEventArgs e)
@@ -799,7 +981,7 @@ namespace BrailleUrdu
                 foreach (Control ctrl in Controls)
                 {
                     if (!ctrl.Visible || !ctrl.Enabled) continue;
-                    if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox)) continue;
+                    if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox || ctrl is PageNumberBox)) continue;
                     if (!content.IntersectsWith(ctrl.Bounds)) continue;
                     SetSelected(ctrl, true);
                     if (!_selectedControls.Contains(ctrl)) _selectedControls.Add(ctrl);
@@ -870,6 +1052,21 @@ namespace BrailleUrdu
             return result;
         }
 
+        // Returns every PrintTextBox across all pages (regular + masters).
+        public System.Collections.Generic.IEnumerable<PrintTextBox> GetAllPrintBoxes()
+        {
+            var result = new List<PrintTextBox>();
+            foreach (var page in Document.Pages)
+                if (_pageControls.TryGetValue(page, out var ctrls))
+                    foreach (var c in ctrls)
+                        if (c is PrintTextBox p) result.Add(p);
+            foreach (var master in new[] { Document.MasterOdd, Document.MasterEven })
+                if (master != null && _pageControls.TryGetValue(master, out var ctrls))
+                    foreach (var c in ctrls)
+                        if (c is PrintTextBox p) result.Add(p);
+            return result;
+        }
+
         // Removes and disposes all managed controls (called before loading a new file).
         public void ClearAll()
         {
@@ -883,6 +1080,7 @@ namespace BrailleUrdu
                 if (!ctrl.IsDisposed) ctrl.Dispose();
             }
             _selectedControls.Clear();
+            _lastOriginX = PageOrigin().X;
         }
 
         // Renders a page's controls to a new Bitmap (page size at current zoom).
@@ -973,6 +1171,59 @@ namespace BrailleUrdu
                                         x + col * sp - radius, y + row * sp - radius,
                                         radius * 2, radius * 2);
                     }
+                    else if (ctrl is LineBox lb)
+                    {
+                        float thick = System.Math.Max(1f, lb.LineThickness);
+                        using (var pen = new System.Drawing.Pen(lb.LineColor, thick))
+                        {
+                            if (lb.Direction == LineBox.LineDirection.Horizontal)
+                                g.DrawLine(pen, x, y + rc.Height / 2f, x + rc.Width, y + rc.Height / 2f);
+                            else
+                                g.DrawLine(pen, x + rc.Width / 2f, y, x + rc.Width / 2f, y + rc.Height);
+                        }
+                    }
+                    else if (ctrl is TableBox tab)
+                    {
+                        float thick = System.Math.Max(1f, tab.LineThickness);
+                        using (var pen = new System.Drawing.Pen(tab.LineColor, thick))
+                        {
+                            g.DrawRectangle(pen, x, y, rc.Width, rc.Height);
+
+                            var rowSizes = tab.RowSizes;
+                            float sumR = 0; foreach (var v in rowSizes) sumR += v;
+                            float yOff = 0;
+                            for (int i = 0; i < rowSizes.Length - 1; i++)
+                            {
+                                yOff += rowSizes[i] / sumR * rc.Height;
+                                g.DrawLine(pen, x, y + yOff, x + rc.Width, y + yOff);
+                            }
+
+                            var colSizes = tab.ColSizes;
+                            float sumC = 0; foreach (var v in colSizes) sumC += v;
+                            float xOff = 0;
+                            for (int i = 0; i < colSizes.Length - 1; i++)
+                            {
+                                xOff += colSizes[i] / sumC * rc.Width;
+                                g.DrawLine(pen, x + xOff, y, x + xOff, y + rc.Height);
+                            }
+                        }
+                    }
+                    else if (ctrl is PageNumberBox pnb)
+                    {
+                        int pgIdx = Document.Pages.IndexOf(page);
+                        string numText = pgIdx >= 0 ? (pgIdx + 1).ToString() : "#";
+                        using (var font  = new System.Drawing.Font("Segoe UI", 9.5f,
+                                               System.Drawing.GraphicsUnit.Point))
+                        using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                        {
+                            var fmt = new System.Drawing.StringFormat
+                            {
+                                Alignment     = System.Drawing.StringAlignment.Center,
+                                LineAlignment = System.Drawing.StringAlignment.Center
+                            };
+                            g.DrawString(numText, font, brush, rc, fmt);
+                        }
+                    }
                 }
             }
 
@@ -984,6 +1235,15 @@ namespace BrailleUrdu
         protected override void OnResize(EventArgs e)
         {
             base.OnResize(e);
+            float newOriginX = PageOrigin().X;
+            float dx         = newOriginX - _lastOriginX;
+            if (Math.Abs(dx) > 0.5f)
+            {
+                foreach (var kvp in _pageControls)
+                    foreach (var ctrl in kvp.Value)
+                        ctrl.Location = new Point((int)(ctrl.Location.X + dx), ctrl.Location.Y);
+            }
+            _lastOriginX = newOriginX;
             UpdateScrollSize();
             Invalidate();
         }

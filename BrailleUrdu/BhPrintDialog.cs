@@ -253,6 +253,21 @@ namespace BrailleUrdu
             try
             {
                 doc.Print();
+
+                // The system PDF "Save As" dialog is not owned by this app, so Windows
+                // pushes all app windows to the background when it closes.  Restore here.
+                var main = Owner ?? (Application.OpenForms.Count > 0
+                                     ? Application.OpenForms[0] : null);
+                if (main != null)
+                {
+                    if (main.WindowState == FormWindowState.Minimized)
+                        main.WindowState = FormWindowState.Normal;
+                    main.Activate();
+                }
+                if (WindowState == FormWindowState.Minimized)
+                    WindowState = FormWindowState.Normal;
+                Activate();
+
                 MessageBox.Show("Document sent to printer.", "Print",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
                 Close();

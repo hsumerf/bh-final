@@ -49,19 +49,33 @@ namespace BrailleUrdu
                 ControlStyles.Selectable                   |
                 ControlStyles.UserPaint                    |
                 ControlStyles.AllPaintingInWmPaint         |
-                ControlStyles.OptimizedDoubleBuffer        |
                 ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
             TabStop      = true;
             MinimumSize  = new Size(HANDLE_SIZE * 3, HANDLE_SIZE * 3);
         }
 
+        // ── Transparency ──────────────────────────────────────────────────────
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x20; return cp; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x84 && m.Result == (IntPtr)(-1)) m.Result = (IntPtr)1;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
         // ── Paint ─────────────────────────────────────────────────────────────
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
+            g.SmoothingMode = SmoothingMode.None;
 
             using (var pen = new Pen(_lineColor, _lineThickness))
             {

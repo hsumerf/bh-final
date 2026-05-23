@@ -107,7 +107,13 @@
     <Compile Include="BrailleFindReplaceDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="TextFindReplaceDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ImageBox.cs">
+      <SubType>UserControl</SubType>
+    </Compile>
+    <Compile Include="PageNumberBox.cs">
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="PropertiesPanel.cs">

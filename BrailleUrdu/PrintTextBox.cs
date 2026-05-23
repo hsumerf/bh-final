@@ -9,7 +9,7 @@ namespace BrailleUrdu
     public class PrintTextBox : UserControl
     {
         private const int HANDLE_SIZE = 10;
-        private const int PAD         = 4;
+        private const int PAD         = 8;
 
         // ── Static defaults ───────────────────────────────────────────────────
         public static string    DefaultFontFamily = "Calibri";
@@ -130,6 +130,21 @@ namespace BrailleUrdu
         private bool   HasSelection => _selectionAnchor != _cursorPos;
         private string SelectedText => _text.Substring(SelStart, SelEnd - SelStart);
 
+        // ── Search highlight ──────────────────────────────────────────────────
+        private string _searchHighlight;
+
+        public void SetSearchHighlight(string pattern)
+        {
+            _searchHighlight = pattern;
+            Invalidate();
+        }
+
+        public void ClearSearchHighlight()
+        {
+            _searchHighlight = null;
+            Invalidate();
+        }
+
         // ── Mode ──────────────────────────────────────────────────────────────
         private bool _textEditMode = false;
 
@@ -158,8 +173,8 @@ namespace BrailleUrdu
                 ControlStyles.Selectable                   |
                 ControlStyles.UserPaint                    |
                 ControlStyles.AllPaintingInWmPaint         |
-                ControlStyles.OptimizedDoubleBuffer        |
                 ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
 
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
@@ -327,11 +342,25 @@ namespace BrailleUrdu
             return fmt;
         }
 
+        // ── Transparency ──────────────────────────────────────────────────────
+        protected override CreateParams CreateParams
+        {
+            get { var cp = base.CreateParams; cp.ExStyle |= 0x20; return cp; }
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg == 0x84 && m.Result == (IntPtr)(-1)) m.Result = (IntPtr)1;
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e) { }
+
         // ── Paint ─────────────────────────────────────────────────────────────
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
-            g.SmoothingMode     = SmoothingMode.AntiAlias;
+            g.SmoothingMode     = SmoothingMode.None;
             g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
             if (!_fillTransparent)
@@ -340,6 +369,7 @@ namespace BrailleUrdu
 
             using (var font = MakeFont())
             {
+                DrawSearchHighlight(g, font);
                 DrawTextSelection(g, font);
                 DrawText(g, font);
 
@@ -424,6 +454,40 @@ namespace BrailleUrdu
                     }
 
                     idx += ln.Length + 1;
+                }
+            }
+        }
+
+        private void DrawSearchHighlight(Graphics g, Font font)
+        {
+            if (string.IsNullOrEmpty(_searchHighlight) || _text.Length == 0) return;
+            string pattern = _searchHighlight;
+            float  lh      = font.GetHeight(g);
+            string[] lines = _text.Split('\n');
+
+            using (var brush = new SolidBrush(Color.FromArgb(180, 255, 210, 0)))
+            using (var fmt   = new StringFormat(StringFormat.GenericTypographic)
+                               { FormatFlags = StringFormatFlags.NoWrap |
+                                               StringFormatFlags.MeasureTrailingSpaces })
+            {
+                for (int li = 0; li < lines.Length; li++)
+                {
+                    string ln    = lines[li];
+                    float  lineY = PAD + li * lh;
+                    int    pos   = 0;
+                    while (pos <= ln.Length - pattern.Length)
+                    {
+                        int match = ln.IndexOf(pattern, pos, StringComparison.Ordinal);
+                        if (match < 0) break;
+                        float x1 = match > 0
+                            ? g.MeasureString(ln.Substring(0, match), font, PointF.Empty, fmt).Width
+                            : 0f;
+                        float x2 = g.MeasureString(
+                            ln.Substring(0, match + pattern.Length), font, PointF.Empty, fmt).Width;
+                        float rx = _isRtl ? Width - PAD - x2 : PAD + x1;
+                        g.FillRectangle(brush, rx, lineY, Math.Max(2f, x2 - x1), lh);
+                        pos = match + pattern.Length;
+                    }
                 }
             }
         }

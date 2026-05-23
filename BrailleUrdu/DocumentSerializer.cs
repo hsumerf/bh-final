@@ -151,7 +151,7 @@ namespace BrailleUrdu
             canvas.PageChanged();
         }
 
-        // ── Single-control clipboard helpers ─────────────────────────────────
+        // ── Clipboard helpers ─────────────────────────────────────────────────
 
         internal static string SerializeControl(Control ctrl, CanvasPanel canvas)
         {
@@ -166,6 +166,54 @@ namespace BrailleUrdu
             var xd = new XmlDocument();
             xd.LoadXml(xml);
             return BuildControl(xd.DocumentElement, canvas);
+        }
+
+        // Serialises multiple controls into a single <MultiClipboard> XML string.
+        internal static string SerializeControls(
+            System.Collections.Generic.IEnumerable<Control> controls, CanvasPanel canvas)
+        {
+            var xd   = new XmlDocument();
+            var root = xd.CreateElement("MultiClipboard");
+            xd.AppendChild(root);
+            foreach (var ctrl in controls)
+            {
+                var ce = BuildControlElement(xd, ctrl, canvas);
+                if (ce != null) root.AppendChild(ce);
+            }
+            return root.OuterXml;
+        }
+
+        // Deserialises a <MultiClipboard> string (or a legacy single-element string)
+        // and returns all controls, positioned correctly for the current canvas.
+        internal static System.Collections.Generic.List<Control> DeserializeControls(
+            string xml, CanvasPanel canvas)
+        {
+            var result = new System.Collections.Generic.List<Control>();
+            if (string.IsNullOrEmpty(xml)) return result;
+            try
+            {
+                var xd = new XmlDocument();
+                xd.LoadXml(xml);
+                var root = xd.DocumentElement;
+                if (root == null) return result;
+
+                if (root.Name == "MultiClipboard")
+                {
+                    foreach (XmlElement ce in root.ChildNodes)
+                    {
+                        var ctrl = BuildControl(ce, canvas);
+                        if (ctrl != null) result.Add(ctrl);
+                    }
+                }
+                else
+                {
+                    // Legacy single-control format
+                    var ctrl = BuildControl(root, canvas);
+                    if (ctrl != null) result.Add(ctrl);
+                }
+            }
+            catch { }
+            return result;
         }
 
         // ── Core element builders (shared by save, snapshot, clipboard) ───────
@@ -229,6 +277,10 @@ namespace BrailleUrdu
                     ib.SourceImage.Save(ms, ImageFormat.Png);
                     ce.InnerText = Convert.ToBase64String(ms.ToArray());
                 }
+            }
+            else if (ctrl is PageNumberBox)
+            {
+                ce = xd.CreateElement("PageNumberBox");
             }
 
             if (ce != null)
@@ -312,6 +364,10 @@ namespace BrailleUrdu
                             ctrl = new ImageBox(new Bitmap(tmp)) { Size = new Size(pw, ph) };
                     }
                     catch { }
+                    break;
+
+                case "PageNumberBox":
+                    ctrl = new PageNumberBox();
                     break;
             }
 

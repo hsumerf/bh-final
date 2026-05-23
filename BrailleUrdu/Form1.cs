@@ -86,6 +86,7 @@ namespace BrailleUrdu
                 case Keys.Control | Keys.C:
                 case Keys.Control | Keys.X:
                 case Keys.Control | Keys.V:
+                case Keys.Delete:
                     var ctrl = ActiveControl;
                     while (ctrl is ContainerControl cc && cc.ActiveControl != null)
                         ctrl = cc.ActiveControl;
@@ -242,6 +243,11 @@ namespace BrailleUrdu
                 }
             }
         }
+
+        // ── Text Find / Replace ───────────────────────────────────────────────
+
+        internal void OnTextFind()    => new TextFindReplaceDialog(canvasPanel, false).ShowDialog(this);
+        internal void OnTextReplace() => new TextFindReplaceDialog(canvasPanel, true).ShowDialog(this);
 
         // ── Braille Find / Replace ────────────────────────────────────────────
 
