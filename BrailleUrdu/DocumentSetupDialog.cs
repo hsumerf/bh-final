@@ -18,8 +18,6 @@ namespace BrailleUrdu
         // Input boxes (Custom mode only)
         private TextBox _tbCustomW, _tbCustomH;
 
-        private RadioButton _rbEn, _rbUr, _rbAr, _rbSi;
-
         private static readonly float[] SizeA4       = { 210f,   297f   };
         private static readonly float[] SizeStandard = { 292.1f, 279.4f };
 
@@ -36,7 +34,7 @@ namespace BrailleUrdu
             Text            = "Document Setup";
             FormBorderStyle = FormBorderStyle.FixedDialog;
             StartPosition   = FormStartPosition.CenterParent;
-            ClientSize      = new Size(460, 460);
+            ClientSize      = new Size(460, 310);
             MaximizeBox     = false;
             MinimizeBox     = false;
             ShowInTaskbar   = false;
@@ -183,33 +181,11 @@ namespace BrailleUrdu
                 lblHint
             });
 
-            // ── Language GroupBox ─────────────────────────────────────────────
-            var grpLang = new GroupBox
-            {
-                Text      = "Language",
-                Location  = new Point(16, 248),
-                Size      = new Size(428, 140),
-                Font      = new Font("Segoe UI", 9f),
-                BackColor = Color.FromArgb(242, 242, 242)
-            };
-
-            _rbEn = MakeRadio("English", new Point(12, 28));
-            _rbUr = MakeRadio("Urdu",    new Point(12, 60));
-            _rbAr = MakeRadio("Arabic",  new Point(224, 28));
-            _rbSi = MakeRadio("Sindhi",  new Point(224, 60));
-
-            AddFontHint(grpLang, LanguageInfo.FontFor("en"), new Point(90, 32));
-            AddFontHint(grpLang, LanguageInfo.FontFor("ur"), new Point(90, 64));
-            AddFontHint(grpLang, LanguageInfo.FontFor("ar"), new Point(302, 32));
-            AddFontHint(grpLang, LanguageInfo.FontFor("si"), new Point(302, 64));
-
-            grpLang.Controls.AddRange(new Control[] { _rbEn, _rbUr, _rbAr, _rbSi });
-
             // ── Buttons ───────────────────────────────────────────────────────
             var btnCancel = new Button
             {
                 Text         = "Cancel",
-                Location     = new Point(254, 414),
+                Location     = new Point(254, 262),
                 Size         = new Size(90, 28),
                 FlatStyle    = FlatStyle.System,
                 DialogResult = DialogResult.Cancel
@@ -217,14 +193,14 @@ namespace BrailleUrdu
             var btnOK = new Button
             {
                 Text      = "OK",
-                Location  = new Point(354, 414),
+                Location  = new Point(354, 262),
                 Size      = new Size(90, 28),
                 FlatStyle = FlatStyle.System
             };
             btnOK.Click += OnOKClick;
 
             CancelButton = btnCancel;
-            Controls.AddRange(new Control[] { grpPage, grpLang, btnCancel, btnOK });
+            Controls.AddRange(new Control[] { grpPage, btnCancel, btnOK });
 
             // Set initial preset after all controls exist
             _cbPreset.SelectedIndex = 0;
@@ -277,14 +253,6 @@ namespace BrailleUrdu
                 _tbCustomH.Text = h.ToString("F1");
             }
 
-            switch (Document.Language)
-            {
-                case "ur": _rbUr.Checked = true; break;
-                case "ar": _rbAr.Checked = true; break;
-                case "si": _rbSi.Checked = true; break;
-                default:   _rbEn.Checked = true; break;
-            }
-
             UpdateDisplay();
         }
 
@@ -301,16 +269,6 @@ namespace BrailleUrdu
 
             _lblWValue.Text = wMm.ToString("F1");
             _lblHValue.Text = hMm.ToString("F1");
-        }
-
-        // ── Language ──────────────────────────────────────────────────────────
-
-        private string SelectedLanguageCode()
-        {
-            if (_rbUr.Checked) return "ur";
-            if (_rbAr.Checked) return "ar";
-            if (_rbSi.Checked) return "si";
-            return "en";
         }
 
         // ── OK ────────────────────────────────────────────────────────────────
@@ -340,10 +298,6 @@ namespace BrailleUrdu
             DocumentPage.WIDTH_MM  = wMm;
             DocumentPage.HEIGHT_MM = hMm;
 
-            string langCode = SelectedLanguageCode();
-            Document.SetLanguage(langCode);
-            PrintTextBox.DefaultFontFamily = LanguageInfo.FontFor(langCode);
-
             _canvas.PageChanged();
             _pages.RebuildThumbnails();
 
@@ -351,26 +305,5 @@ namespace BrailleUrdu
             Close();
         }
 
-        // ── Static helpers ────────────────────────────────────────────────────
-
-        private static RadioButton MakeRadio(string text, Point loc) => new RadioButton
-        {
-            Text     = text,
-            Location = loc,
-            AutoSize = true,
-            Font     = new Font("Segoe UI", 9.5f)
-        };
-
-        private static void AddFontHint(Control parent, string fontName, Point loc)
-        {
-            parent.Controls.Add(new Label
-            {
-                Text      = "(" + fontName + ")",
-                Location  = loc,
-                AutoSize  = true,
-                Font      = new Font("Segoe UI", 7.5f),
-                ForeColor = Color.Gray
-            });
-        }
     }
 }

@@ -36,7 +36,7 @@ namespace BrailleUrdu
 
             // ── Find row ─────────────────────────────────────────────────────
             Controls.Add(new Label { Text = "Find:", Location = new Point(16, y + 3), AutoSize = true });
-            _tbFind = MakeLanguageInputBox(new Point(80, y), new Size(290, 24));
+            _tbFind = MakeTextBox(new Point(80, y), new Size(290, 24));
             _tbFind.KeyDown += (s, e) => { if (e.KeyCode == Keys.Return) DoFind(); };
             Controls.Add(_tbFind);
             y += 40;
@@ -45,7 +45,7 @@ namespace BrailleUrdu
             if (_isReplace)
             {
                 Controls.Add(new Label { Text = "Replace:", Location = new Point(16, y + 3), AutoSize = true });
-                _tbReplace = MakeLanguageInputBox(new Point(80, y), new Size(290, 24));
+                _tbReplace = MakeTextBox(new Point(80, y), new Size(290, 24));
                 Controls.Add(_tbReplace);
                 y += 40;
             }
@@ -100,50 +100,12 @@ namespace BrailleUrdu
             CancelButton = btnClose;
         }
 
-        // Creates a TextBox wired to the current document language:
-        // correct font, RTL direction, and PrintInputMap key conversion.
-        private static TextBox MakeLanguageInputBox(Point loc, Size sz)
+        private static TextBox MakeTextBox(Point loc, Size sz) => new TextBox
         {
-            bool   isRtl      = LanguageInfo.RtlFor(Document.Language);
-            string fontFamily = LanguageInfo.FontFor(Document.Language);
-
-            var tb = new TextBox
-            {
-                Location    = loc,
-                Size        = sz,
-                Font        = new Font(fontFamily, 12f),
-                RightToLeft = isRtl ? RightToLeft.Yes : RightToLeft.No,
-                TextAlign   = isRtl ? HorizontalAlignment.Right : HorizontalAlignment.Left
-            };
-
-            // pendingRef[0] holds the multi-char accumulation buffer for PrintInputMap
-            var pendingRef = new[] { "" };
-
-            tb.KeyPress += (s, e) =>
-            {
-                if (e.KeyChar < ' ') return; // let Backspace, Enter, Ctrl+keys through
-                string output = Document.PrintMap.Convert(ref pendingRef[0], e.KeyChar);
-                if (output == null) { e.Handled = true; return; } // still accumulating
-
-                int sel = tb.SelectionStart;
-                int len = tb.SelectionLength;
-                tb.Text           = tb.Text.Remove(sel, len).Insert(sel, output);
-                tb.SelectionStart = sel + output.Length;
-                e.Handled = true;
-            };
-
-            tb.LostFocus += (s, e) =>
-            {
-                if (string.IsNullOrEmpty(pendingRef[0])) return;
-                string flushed = Document.PrintMap.Flush(ref pendingRef[0]);
-                if (flushed.Length == 0) return;
-                int sel = tb.SelectionStart;
-                tb.Text           = tb.Text.Insert(sel, flushed);
-                tb.SelectionStart = sel + flushed.Length;
-            };
-
-            return tb;
-        }
+            Location = loc,
+            Size     = sz,
+            Font     = new Font("Calibri", 12f)
+        };
 
         private void DoFind()
         {

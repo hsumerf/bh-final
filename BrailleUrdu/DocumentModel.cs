@@ -22,16 +22,7 @@ namespace BrailleUrdu
             Pages[CurrentPageIndex];
 
         // ── Language ──────────────────────────────────────────────────────────
-        public static string        Language { get; private set; } = "en";
-        public static LanguageSpec  Spec     { get; private set; } = LanguageSpec.Load("en");
-        public static PrintInputMap PrintMap { get; private set; } = PrintInputMap.Load("en");
-
-        public static void SetLanguage(string code)
-        {
-            Language = code;
-            Spec     = LanguageSpec.Load(code);
-            PrintMap = PrintInputMap.Load(code);
-        }
+        public static LanguageSpec  Spec { get; } = LanguageSpec.Load("en");
 
         public static void AddPage()
         {

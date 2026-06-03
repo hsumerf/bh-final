@@ -167,7 +167,7 @@ namespace BrailleUrdu
             _fontSizePt = DefaultFontSizePt;
             _fontStyle  = DefaultFontStyle;
             _textColor  = DefaultTextColor;
-            _isRtl      = LanguageInfo.RtlFor(Document.Language);
+            _isRtl      = false;
 
             SetStyle(
                 ControlStyles.Selectable                   |
@@ -298,7 +298,7 @@ namespace BrailleUrdu
         private void FlushInputPending()
         {
             if (string.IsNullOrEmpty(_inputPending)) return;
-            string flushed = Document.PrintMap?.Flush(ref _inputPending) ?? _inputPending;
+            string flushed = _inputPending;
             _inputPending = "";
             if (flushed.Length == 0) return;
             _text = _text.Substring(0, _cursorPos) + flushed + _text.Substring(_cursorPos);
@@ -758,9 +758,7 @@ namespace BrailleUrdu
 
             if (HasSelection) DeleteSelection();
 
-            string output = (!char.IsDigit(c) && Document.PrintMap != null)
-                ? Document.PrintMap.Convert(ref _inputPending, c)
-                : c.ToString();
+            string output = c.ToString();
 
             if (output == null) { e.Handled = true; return; }
 

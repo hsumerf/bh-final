@@ -18,7 +18,6 @@ namespace BrailleUrdu
             var xd   = new XmlDocument();
             var root = xd.CreateElement("BhDoc");
             root.SetAttribute("version",  "1");
-            root.SetAttribute("language", Document.Language);
             root.SetAttribute("widthMm",  Fmt(DocumentPage.WIDTH_MM));
             root.SetAttribute("heightMm", Fmt(DocumentPage.HEIGHT_MM));
             xd.AppendChild(root);
@@ -61,9 +60,6 @@ namespace BrailleUrdu
 
             DocumentPage.WIDTH_MM  = ParseF(root, "widthMm",  210f);
             DocumentPage.HEIGHT_MM = ParseF(root, "heightMm", 297f);
-
-            string lang = root.GetAttribute("language");
-            Document.SetLanguage(string.IsNullOrEmpty(lang) ? "en" : lang);
 
             canvas.ClearAll();
             Document.Pages.Clear();
