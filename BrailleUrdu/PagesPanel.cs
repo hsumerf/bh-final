@@ -7,6 +7,8 @@ namespace BrailleUrdu
     public class PagesPanel : UserControl
     {
         private readonly Action _onPageChanged;
+        private CanvasPanel     _canvas;
+        private Timer           _refreshTimer;
 
         private Label            _lblPages;
         private Label            _lblMasterPage;
@@ -27,6 +29,16 @@ namespace BrailleUrdu
             _onPageChanged = onPageChanged;
             Build();
             SetMode(false);
+        }
+
+        // Called after CanvasPanel is created so thumbnails can render page content.
+        public void SetCanvas(CanvasPanel canvas)
+        {
+            _canvas = canvas;
+            // Debounce: rebuild thumbnails 400 ms after the last document change.
+            _refreshTimer = new Timer { Interval = 400 };
+            _refreshTimer.Tick += (s, e) => { _refreshTimer.Stop(); RebuildThumbnails(); };
+            canvas.DocumentChanged += (s, e) => { _refreshTimer.Stop(); _refreshTimer.Start(); };
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -195,6 +207,12 @@ namespace BrailleUrdu
 
         public void RebuildThumbnails()
         {
+            // Dispose bitmaps stored in PictureBox thumbnails before clearing
+            foreach (Control w in _content.Controls)
+                foreach (Control c in w.Controls)
+                    if (c is PictureBox pb && pb.Image != null)
+                    { pb.Image.Dispose(); pb.Image = null; }
+
             _content.Controls.Clear();
 
             if (_showMaster)
@@ -224,18 +242,34 @@ namespace BrailleUrdu
                 Cursor = Cursors.Hand
             };
 
-            var thumb = new Panel
+            // Render the page to a scaled bitmap
+            System.Drawing.Bitmap thumbBmp = null;
+            if (_canvas != null)
+            {
+                DocumentPage pg = index == -1 ? Document.MasterOdd
+                                : index == -2 ? Document.MasterEven
+                                : (index >= 0 && index < Document.Pages.Count
+                                    ? Document.Pages[index] : null);
+                if (pg != null)
+                    thumbBmp = _canvas.RenderPageToBitmap(pg);
+            }
+
+            var pic = new PictureBox
             {
                 Width     = 88,
                 Height    = 108,
                 Location  = new Point(48, 8),
-                BackColor = Color.White
+                SizeMode  = PictureBoxSizeMode.StretchImage,
+                BackColor = Color.White,
+                Cursor    = Cursors.Hand,
+                Image     = thumbBmp
             };
-            thumb.Paint += (s, e) =>
+            // Draw border on top of the image
+            pic.Paint += (s, e) =>
             {
                 using (var pen = new Pen(
                     selected ? Color.FromArgb(80, 150, 230) : Color.Silver, 1))
-                    e.Graphics.DrawRectangle(pen, 0, 0, thumb.Width - 1, thumb.Height - 1);
+                    e.Graphics.DrawRectangle(pen, 0, 0, pic.Width - 1, pic.Height - 1);
             };
 
             var lbl = new Label
@@ -249,12 +283,12 @@ namespace BrailleUrdu
                 BackColor = Color.Transparent
             };
 
-            wrapper.Controls.Add(thumb);
+            wrapper.Controls.Add(pic);
             wrapper.Controls.Add(lbl);
 
             Action select = () => SelectPage(index);
             wrapper.Click += (s, e) => select();
-            thumb.Click   += (s, e) => select();
+            pic.Click     += (s, e) => select();
             lbl.Click     += (s, e) => select();
 
             return wrapper;
@@ -265,8 +299,8 @@ namespace BrailleUrdu
         private void SelectPage(int index)
         {
             Document.CurrentPageIndex = index;
-            RebuildThumbnails();
-            _onPageChanged?.Invoke();
+            _onPageChanged?.Invoke();   // resets scroll and updates visibility first
+            RebuildThumbnails();        // then render thumbnails with settled canvas state
         }
 
         private void OnAddPage(object sender, EventArgs e)

@@ -16,6 +16,9 @@ namespace BrailleUrdu
 
         private bool  _dragging;
         private Point _mouseDownScreen, _startLocation;
+        private System.Collections.Generic.Dictionary<Control, Point> _groupStartLocations;
+
+        public bool IsSelected { get; set; }
 
         public bool[,] DotGrid
         {
@@ -75,10 +78,10 @@ namespace BrailleUrdu
             {
                 float spX = (float)(Width  - PAD * 2) / _cols;
                 float spY = (float)(Height - PAD * 2) / _rows;
-                float r   = Math.Max(1.2f, Math.Min(spX, spY) * 0.38f);
+                float r   = Math.Max(1.5f, DocumentPage.DOT_SPACING_MM * PxPerMm * 0.27f);
 
                 g.SmoothingMode = SmoothingMode.AntiAlias;
-                using (var brush = new SolidBrush(Color.Black))
+                using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
                 {
                     for (int c = 0; c < _cols; c++)
                     for (int row = 0; row < _rows; row++)
@@ -97,6 +100,11 @@ namespace BrailleUrdu
                 using (var pen = new Pen(Color.DodgerBlue, 1.5f))
                     g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
             }
+            else if (IsSelected)
+            {
+                using (var pen = new Pen(Color.DodgerBlue, 1.5f) { DashStyle = DashStyle.Dash })
+                    g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+            }
             else if (_cols == 0)
             {
                 using (var pen = new Pen(Color.FromArgb(160, 160, 160), 1f) { DashStyle = DashStyle.Dash })
@@ -108,12 +116,25 @@ namespace BrailleUrdu
 
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            // Capture screen coords BEFORE base.OnMouseDown: WinForms fires focus
+            // internally which can trigger AutoScroll and physically move the HWND,
+            // making a post-move PointToScreen give the wrong drag anchor.
+            _mouseDownScreen = PointToScreen(e.Location);
             base.OnMouseDown(e);
             Focus();
-            _mouseDownScreen = PointToScreen(e.Location);
-            _startLocation   = Location;
+            _startLocation   = Location; // captured after any focus-induced scroll
             _dragging        = true;
             Capture          = true;
+
+            var canvas = Parent as CanvasPanel;
+            if (canvas != null && IsSelected && canvas.SelectedControls.Count > 1)
+            {
+                _groupStartLocations = new System.Collections.Generic.Dictionary<Control, Point>();
+                foreach (var c in canvas.SelectedControls)
+                    _groupStartLocations[c] = c.Location;
+            }
+            else
+                _groupStartLocations = null;
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -121,16 +142,34 @@ namespace BrailleUrdu
             base.OnMouseMove(e);
             if (!_dragging) return;
             var screen = PointToScreen(e.Location);
-            Location = new Point(
-                Math.Max(0, _startLocation.X + screen.X - _mouseDownScreen.X),
-                Math.Max(0, _startLocation.Y + screen.Y - _mouseDownScreen.Y));
+            int dx = screen.X - _mouseDownScreen.X;
+            int dy = screen.Y - _mouseDownScreen.Y;
+
+            var canvas = Parent as ScrollableControl;
+            int minX   = canvas?.AutoScrollPosition.X ?? 0;
+            int minY   = canvas?.AutoScrollPosition.Y ?? 0;
+
+            if (_groupStartLocations != null)
+            {
+                foreach (var kvp in _groupStartLocations)
+                    kvp.Key.Location = new Point(
+                        Math.Max(minX, kvp.Value.X + dx),
+                        Math.Max(minY, kvp.Value.Y + dy));
+            }
+            else
+            {
+                Location = new Point(
+                    Math.Max(minX, _startLocation.X + dx),
+                    Math.Max(minY, _startLocation.Y + dy));
+            }
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            _dragging = false;
-            Capture   = false;
+            _dragging            = false;
+            _groupStartLocations = null;
+            Capture              = false;
         }
 
         // ── Keyboard ──────────────────────────────────────────────────────────

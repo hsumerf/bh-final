@@ -26,7 +26,7 @@ namespace BrailleUrdu
         // ── Style ─────────────────────────────────────────────────────────────
         private Color           _textColor = Color.Black;
         private StringAlignment _hAlign    = StringAlignment.Near;
-        private StringAlignment _vAlign    = StringAlignment.Near;
+        private StringAlignment _vAlign    = StringAlignment.Center;
 
         // ── Border ────────────────────────────────────────────────────────────
         private Color _borderColor  = Color.Black;
@@ -146,7 +146,8 @@ namespace BrailleUrdu
         }
 
         // ── Mode ──────────────────────────────────────────────────────────────
-        private bool _textEditMode = false;
+        private bool _textEditMode  = false;
+        private bool _justGotFocus  = false; // true from OnGotFocus until first OnMouseDown
 
         private readonly Timer _caretTimer   = new Timer { Interval = 530 };
         private bool           _caretVisible = false;
@@ -157,6 +158,10 @@ namespace BrailleUrdu
         private Point        _mouseDownScreen;
         private Point        _startLocation;
         private Size         _startSize;
+        private int          _pendingClickIdx  = -1; // deferred single-click text entry
+        private int          _ownClickCount    = 0;  // our own click counter (e.Clicks unreliable >2)
+        private int          _lastClickTick    = 0;
+        private Point        _lastClickScreen  = Point.Empty;
         private ResizeHandle _activeHandle = ResizeHandle.None;
         private System.Collections.Generic.Dictionary<Control, Point> _groupStartLocations;
 
@@ -241,8 +246,8 @@ namespace BrailleUrdu
                     }
                     int contentW = (int)Math.Ceiling(maxLineW) + PAD * 2 + 4;
                     int newWidth = maxWidth == int.MaxValue
-                        ? Math.Max(MinimumSize.Width, contentW)
-                        : Math.Max(MinimumSize.Width, Math.Min(contentW, maxWidth));
+                        ? Math.Max(Width, Math.Max(MinimumSize.Width, contentW))
+                        : Math.Max(Width, Math.Max(MinimumSize.Width, Math.Min(contentW, maxWidth)));
 
                     // Height with soft wrapping at newWidth
                     float measuredH;
@@ -342,6 +347,35 @@ namespace BrailleUrdu
             return fmt;
         }
 
+        // Edge padding: 0 on the side the text is aligned to, PAD otherwise.
+        // RTL swaps Near/Far so Near still means "the natural reading start edge".
+        private float TextLeft  => (!_isRtl && _hAlign == StringAlignment.Near) ||
+                                   ( _isRtl && _hAlign == StringAlignment.Far)  ? 0f : PAD;
+        private float TextRight => (!_isRtl && _hAlign == StringAlignment.Far)  ||
+                                   ( _isRtl && _hAlign == StringAlignment.Near) ? 0f : PAD;
+        private float TextTop   => _vAlign == StringAlignment.Near ? 0f : PAD;
+        private float TextBot   => _vAlign == StringAlignment.Far  ? 0f : PAD;
+
+        // X-coordinate of a character whose preceding text has pixel-width `beforeWidth`,
+        // in the current alignment and text-direction context.
+        private float CharX(Graphics g, Font font, string ln, float beforeWidth)
+        {
+            if (_isRtl)
+                return Width - TextRight - beforeWidth;
+
+            if (_hAlign == StringAlignment.Far)
+            {
+                float lineW = ln.Length > 0
+                    ? g.MeasureString(ln, font, PointF.Empty,
+                          new StringFormat { FormatFlags = StringFormatFlags.NoWrap |
+                                                           StringFormatFlags.MeasureTrailingSpaces }).Width
+                    : 0f;
+                return Width - TextRight - lineW + beforeWidth;
+            }
+
+            return TextLeft + beforeWidth; // Near or Center
+        }
+
         // ── Transparency ──────────────────────────────────────────────────────
         protected override CreateParams CreateParams
         {
@@ -412,7 +446,9 @@ namespace BrailleUrdu
             using (var fmt   = MakeFmt())
             using (var brush = new SolidBrush(_textColor))
                 g.DrawString(_text, font, brush,
-                    new RectangleF(PAD, PAD, Width - PAD * 2, Height - PAD * 2), fmt);
+                    new RectangleF(TextLeft, TextTop,
+                                   Width  - TextLeft - TextRight,
+                                   Height - TextTop  - TextBot), fmt);
         }
 
         // ── Selection highlight ───────────────────────────────────────────────
@@ -432,11 +468,11 @@ namespace BrailleUrdu
                     string ln        = lines[li];
                     int    lineStart = idx;
                     int    lineEnd   = idx + ln.Length;
-                    float  y         = PAD + li * lh;
+                    float  y         = TextTop + li * lh;
 
                     int  cs              = Math.Max(selStart, lineStart) - lineStart;
                     int  ce              = Math.Min(selEnd,   lineEnd)   - lineStart;
-                    bool newlineSel      = selEnd > lineEnd && li < lines.Length - 1;
+                    bool newlineSel      = selEnd > lineEnd && selStart <= lineEnd && li < lines.Length - 1;
 
                     if (cs < ce || newlineSel)
                     {
@@ -448,8 +484,10 @@ namespace BrailleUrdu
                             : 0f;
                         if (newlineSel) x2 = Math.Max(x2, x1 + 6f);
 
-                        float rx = _isRtl ? Width - PAD - x2 : PAD + x1;
+                        // For RTL the logical start is on the right, so selection rect
+                        // begins at CharX(x2) (the leftmost pixel of the selection).
                         float rw = Math.Max(2f, x2 - x1);
+                        float rx = _isRtl ? CharX(g, font, ln, x2) : CharX(g, font, ln, x1);
                         g.FillRectangle(selBrush, rx, y, rw, lh);
                     }
 
@@ -473,7 +511,7 @@ namespace BrailleUrdu
                 for (int li = 0; li < lines.Length; li++)
                 {
                     string ln    = lines[li];
-                    float  lineY = PAD + li * lh;
+                    float  lineY = TextTop + li * lh;
                     int    pos   = 0;
                     while (pos <= ln.Length - pattern.Length)
                     {
@@ -484,8 +522,9 @@ namespace BrailleUrdu
                             : 0f;
                         float x2 = g.MeasureString(
                             ln.Substring(0, match + pattern.Length), font, PointF.Empty, fmt).Width;
-                        float rx = _isRtl ? Width - PAD - x2 : PAD + x1;
-                        g.FillRectangle(brush, rx, lineY, Math.Max(2f, x2 - x1), lh);
+                        float rw = Math.Max(2f, x2 - x1);
+                        float rx = _isRtl ? CharX(g, font, ln, x2) : CharX(g, font, ln, x1);
+                        g.FillRectangle(brush, rx, lineY, rw, lh);
                         pos = match + pattern.Length;
                     }
                 }
@@ -525,8 +564,7 @@ namespace BrailleUrdu
             float beforeWidth = before.Length > 0
                 ? g.MeasureString(before, font, PointF.Empty, MakeFmt()).Width
                 : 0f;
-            float x = _isRtl ? (Width - PAD) - beforeWidth : PAD + beforeWidth;
-            return new PointF(x, PAD + line * lh);
+            return new PointF(CharX(g, font, ln, beforeWidth), TextTop + line * lh);
         }
 
         private int TextIndexAt(Point p)
@@ -537,7 +575,7 @@ namespace BrailleUrdu
             {
                 float    lh    = font.GetHeight(g);
                 string[] lines = _text.Split('\n');
-                int      li    = Math.Max(0, Math.Min((int)((p.Y - PAD) / lh), lines.Length - 1));
+                int      li    = Math.Max(0, Math.Min((int)((p.Y - TextTop) / lh), lines.Length - 1));
 
                 int baseIdx = 0;
                 for (int i = 0; i < li; i++) baseIdx += lines[i].Length + 1;
@@ -551,7 +589,7 @@ namespace BrailleUrdu
                     float w  = col > 0
                         ? g.MeasureString(ln.Substring(0, col), font, PointF.Empty, fmt).Width
                         : 0f;
-                    float cx = _isRtl ? (Width - PAD) - w : PAD + w;
+                    float cx = CharX(g, font, ln, w);
                     float d  = Math.Abs(p.X - cx);
                     if (d < best) { best = d; bestCol = col; }
                 }
@@ -580,6 +618,54 @@ namespace BrailleUrdu
                 idx++;
             }
             return Math.Min(idx + col, _text.Length);
+        }
+
+        // ── Word / line selection helpers ─────────────────────────────────────
+        private void SelectWordAt(int idx)
+        {
+            if (_text.Length == 0) return;
+            if (idx >= _text.Length) idx = _text.Length - 1;
+
+            int start = idx;
+            while (start > 0 && !char.IsWhiteSpace(_text[start - 1]))
+                start--;
+
+            int end = idx;
+            while (end < _text.Length && !char.IsWhiteSpace(_text[end]))
+                end++;
+
+            if (start < end)
+            {
+                _selectionAnchor = start;
+                _cursorPos       = end;
+                _caretVisible    = true;
+                Invalidate();
+            }
+        }
+
+        private void SelectLineAt(int idx)
+        {
+            int start = idx;
+            while (start > 0 && _text[start - 1] != '\n')
+                start--;
+
+            int end = idx < _text.Length ? idx : _text.Length;
+            while (end < _text.Length && _text[end] != '\n')
+                end++;
+
+            _selectionAnchor = start;
+            _cursorPos       = end;
+            _caretVisible    = true;
+            Invalidate();
+        }
+
+        private void SelectAll()
+        {
+            if (_text.Length == 0) return;
+            _selectionAnchor = 0;
+            _cursorPos       = _text.Length;
+            _caretVisible    = true;
+            Invalidate();
         }
 
         // ── Resize handle geometry ────────────────────────────────────────────
@@ -633,10 +719,33 @@ namespace BrailleUrdu
         // ── Mouse ─────────────────────────────────────────────────────────────
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            base.OnMouseDown(e);
-            Focus();
+            // Capture screen coords BEFORE base.OnMouseDown: WinForms fires focus
+            // internally which can trigger AutoScroll and physically move the HWND,
+            // making a post-move PointToScreen give the wrong drag anchor.
             _mouseDownScreen = PointToScreen(e.Location);
-            _startLocation   = Location;
+            base.OnMouseDown(e);
+            // WM_SETFOCUS fires before WM_LBUTTONDOWN, so OnGotFocus (and the canvas GotFocus
+            // handler that sets IsSelected) has already run by the time we get here.
+            // _justGotFocus tells us whether this is the very click that gained focus.
+            bool wasInTextMode = _textEditMode;
+            bool justGotFocus  = _justGotFocus;
+            _justGotFocus      = false; // consume — next click on this already-focused box won't see it
+            Focus();
+
+            // e.Clicks from WinForms is unreliable beyond 2 — track rapid consecutive clicks ourselves.
+            {
+                int   nowTick = Environment.TickCount;
+                Point scr     = _mouseDownScreen; // reuse pre-focus-scroll capture
+                Size  dblSz   = SystemInformation.DoubleClickSize;
+                bool  same    = Math.Abs(scr.X - _lastClickScreen.X) <= dblSz.Width / 2 &&
+                                Math.Abs(scr.Y - _lastClickScreen.Y) <= dblSz.Height / 2;
+                bool  inTime  = unchecked(nowTick - _lastClickTick) <= SystemInformation.DoubleClickTime;
+                _ownClickCount   = (same && inTime) ? _ownClickCount + 1 : 1;
+                _lastClickTick   = nowTick;
+                _lastClickScreen = scr;
+            }
+
+            _startLocation   = Location; // captured after any focus-induced scroll
             _startSize       = Size;
             _activeHandle    = HitTest(e.Location);
             _resizing        = _activeHandle != ResizeHandle.None;
@@ -656,13 +765,36 @@ namespace BrailleUrdu
                     _groupStartLocations = null;
             }
 
-            if (_activeHandle == ResizeHandle.None && (e.Clicks >= 2 || _textEditMode))
+            if (_activeHandle == ResizeHandle.None)
             {
                 int idx = TextIndexAt(e.Location);
-                if (_textEditMode && (ModifierKeys & Keys.Shift) != 0)
-                { _cursorPos = idx; _caretVisible = true; Invalidate(); }
-                else
-                    EnterTextMode(idx);
+
+                if (wasInTextMode)
+                {
+                    // Already editing: cursor / word / all by click count.
+                    _pendingClickIdx = -1;
+                    if ((ModifierKeys & Keys.Shift) != 0)
+                    { _cursorPos = idx; _caretVisible = true; Invalidate(); }
+                    else if (_ownClickCount >= 3) { SelectAll(); }
+                    else if (_ownClickCount == 2) { SelectWordAt(idx); }
+                    else                          { EnterTextMode(idx); }
+                }
+                else if (!justGotFocus)
+                {
+                    if (_ownClickCount >= 3)
+                    {
+                        // Triple-click before text mode was established: enter and select all.
+                        EnterTextMode(idx);
+                        SelectAll();
+                    }
+                    else
+                    {
+                        // Box was already focused/selected; this click places the cursor.
+                        // Defer to mouse-up so the user can still drag the box.
+                        _pendingClickIdx = idx;
+                    }
+                }
+                // else justGotFocus: this click is what selected the box — no cursor yet.
             }
         }
 
@@ -691,18 +823,22 @@ namespace BrailleUrdu
 
             if (_dragging)
             {
+                var canvas = Parent as ScrollableControl;
+                int minX   = canvas?.AutoScrollPosition.X ?? 0;
+                int minY   = canvas?.AutoScrollPosition.Y ?? 0;
+
                 if (_groupStartLocations != null)
                 {
                     foreach (var kvp in _groupStartLocations)
                         kvp.Key.Location = new Point(
-                            Math.Max(0, kvp.Value.X + dx),
-                            Math.Max(0, kvp.Value.Y + dy));
+                            Math.Max(minX, kvp.Value.X + dx),
+                            Math.Max(minY, kvp.Value.Y + dy));
                 }
                 else
                 {
                     Location = new Point(
-                        Math.Max(0, _startLocation.X + dx),
-                        Math.Max(0, _startLocation.Y + dy));
+                        Math.Max(minX, _startLocation.X + dx),
+                        Math.Max(minY, _startLocation.Y + dy));
                 }
                 return;
             }
@@ -743,6 +879,16 @@ namespace BrailleUrdu
             _activeHandle        = ResizeHandle.None;
             _groupStartLocations = null;
             Capture              = false;
+
+            if (_pendingClickIdx >= 0)
+            {
+                var ds  = SystemInformation.DragSize;
+                var scr = PointToScreen(e.Location);
+                if (Math.Abs(scr.X - _mouseDownScreen.X) <= ds.Width &&
+                    Math.Abs(scr.Y - _mouseDownScreen.Y) <= ds.Height)
+                    EnterTextMode(_pendingClickIdx);
+                _pendingClickIdx = -1;
+            }
         }
 
         // ── Keyboard ──────────────────────────────────────────────────────────
@@ -819,15 +965,25 @@ namespace BrailleUrdu
 
                 case Keys.Left:
                     FlushInputPending();
-                    if (_textEditMode && _cursorPos > 0)
-                    { _cursorPos--; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    if (_textEditMode)
+                    {
+                        if (HasSelection && !e.Shift)
+                        { _cursorPos = SelStart; _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                        else if (_cursorPos > 0)
+                        { _cursorPos--; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    }
                     e.Handled = true;
                     break;
 
                 case Keys.Right:
                     FlushInputPending();
-                    if (_textEditMode && _cursorPos < _text.Length)
-                    { _cursorPos++; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    if (_textEditMode)
+                    {
+                        if (HasSelection && !e.Shift)
+                        { _cursorPos = SelEnd; _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                        else if (_cursorPos < _text.Length)
+                        { _cursorPos++; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    }
                     e.Handled = true;
                     break;
 
@@ -924,6 +1080,7 @@ namespace BrailleUrdu
         protected override void OnGotFocus(EventArgs e)
         {
             base.OnGotFocus(e);
+            _justGotFocus    = true;
             _textEditMode    = false;
             _selectionAnchor = _cursorPos;
             _caretVisible    = false;

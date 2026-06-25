@@ -52,7 +52,8 @@ namespace BrailleUrdu
         }
 
         // ── Mode ──────────────────────────────────────────────────────────────
-        private bool _textEditMode = false;
+        private bool _textEditMode  = false;
+        private bool _justGotFocus  = false; // true from OnGotFocus until first OnMouseDown
 
         private readonly Timer _caretTimer   = new Timer { Interval = 530 };
         private bool           _caretVisible = false;
@@ -65,6 +66,10 @@ namespace BrailleUrdu
         private Size         _startSize;
         private ResizeHandle _activeHandle = ResizeHandle.None;
         private System.Collections.Generic.Dictionary<Control, Point> _groupStartLocations;
+        private int          _pendingClickIdx  = -1; // deferred single-click text entry
+        private int          _ownClickCount    = 0;  // our own click counter (e.Clicks unreliable >2)
+        private int          _lastClickTick    = 0;
+        private Point        _lastClickScreen  = Point.Empty;
 
         // ── Construction ──────────────────────────────────────────────────────
         public BrailleTextBox()
@@ -79,8 +84,8 @@ namespace BrailleUrdu
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
             TabStop      = true;
-            MinimumSize  = new Size(CellPx + PAD * 2, LinePx + PAD);
-            Size         = new Size(CellPx + PAD * 2, LinePx + PAD);
+            MinimumSize  = new Size(CellPx + PAD * 2, LinePx);
+            Size         = new Size(CellPx + PAD * 2, LinePx);
 
             _caretTimer.Tick += (s, e) => { _caretVisible = !_caretVisible; Invalidate(); };
         }
@@ -149,7 +154,7 @@ namespace BrailleUrdu
                 if (ox + cellW > newWidth - PAD) { rows++; col = 0; }
                 col++;
             }
-            int newHeight = PAD + rows * lineH;
+            int newHeight = rows * lineH;
 
             if (Width != newWidth || Height != newHeight)
                 SetBounds(Left, Top, newWidth, newHeight);
@@ -248,7 +253,7 @@ namespace BrailleUrdu
                         float ox = PAD + col * cellW;
                         if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
                         if (i >= match && i < match + searchLen)
-                            g.FillRectangle(brush, ox, PAD + row * lineH, cellW, lineH);
+                            g.FillRectangle(brush, ox, row * lineH, cellW, lineH);
                         col++;
                     }
                     pos = match + searchLen;
@@ -270,7 +275,7 @@ namespace BrailleUrdu
                     float ox = PAD + col * cellW;
                     if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
                     if (i >= start && i < end)
-                        g.FillRectangle(brush, ox, PAD + row * lineH, cellW, lineH);
+                        g.FillRectangle(brush, ox, row * lineH, cellW, lineH);
                     col++;
                 }
             }
@@ -283,6 +288,10 @@ namespace BrailleUrdu
             float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
             float cellW      = CellPx;
             float lineH      = LinePx;
+            // Center the dot grid within the cell rectangle so dots sit fully
+            // inside the selection/highlight rectangle [ox, ox+cellW] x [oy, oy+lineH].
+            float dotOffsetX = (cellW - dotSpacePx)       / 2f;
+            float dotOffsetY = (lineH  - 2 * dotSpacePx)  / 2f;
             int col = 0, row = 0;
 
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -294,7 +303,7 @@ namespace BrailleUrdu
 
                     float ox = PAD + col * cellW;
                     if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
-                    float oy = PAD + row * lineH;
+                    float oy = row * lineH;
 
                     int bits = (int)c - 0x2800;
                     for (int b = 0; b < 8; b++)
@@ -302,8 +311,8 @@ namespace BrailleUrdu
                         if ((bits & (1 << b)) == 0) continue;
                         int dcol = b < 6 ? b / 3 : b - 6;
                         int drow = b < 6 ? b % 3 : 3;
-                        float cx = ox + dcol * dotSpacePx;
-                        float cy = oy + drow * dotSpacePx;
+                        float cx = ox + dotOffsetX + dcol * dotSpacePx;
+                        float cy = oy + dotOffsetY + drow * dotSpacePx;
                         g.FillEllipse(brush, cx - dotRad, cy - dotRad, dotRad * 2, dotRad * 2);
                     }
                     col++;
@@ -331,11 +340,11 @@ namespace BrailleUrdu
                 if (ox + cellW > Width - PAD) { row++; col = 0; }
 
                 if (i == _cursorPos)
-                    return new PointF(PAD + col * cellW, PAD + row * LinePx);
+                    return new PointF(PAD + col * cellW, row * LinePx);
 
                 if (i < _text.Length) col++;
             }
-            return new PointF(PAD, PAD);
+            return new PointF(PAD, 0f);
         }
 
         private int TextIndexAt(Point p)
@@ -348,10 +357,19 @@ namespace BrailleUrdu
             for (int i = 0; i <= _text.Length; i++)
             {
                 float ox = PAD + col * cellW;
-                if (ox + cellW > Width - PAD) { row++; col = 0; }
+                bool wouldWrap = ox + cellW > Width - PAD;
 
-                float cx = PAD + col * cellW;
-                float cy = PAD + row * lineH + lineH * 0.5f;
+                // Only wrap for real characters. The end-of-text cursor must stay
+                // on the same row as the last character so it is always clickable.
+                if (wouldWrap && i < _text.Length) { row++; col = 0; }
+
+                // When the end position would overflow the row, snap its center to
+                // the right edge of the content area (Width - PAD) so the rightmost
+                // character can be selected even when the box fits the text exactly.
+                float cx = (i == _text.Length && wouldWrap)
+                           ? Width - PAD
+                           : PAD + col * cellW + cellW * 0.5f;
+                float cy = row * lineH + lineH * 0.5f;
                 float dx = p.X - cx, dy = p.Y - cy;
                 float d2 = dx * dx + dy * dy;
                 if (d2 < bestDist) { bestDist = d2; best = i; }
@@ -359,6 +377,77 @@ namespace BrailleUrdu
                 if (i < _text.Length) col++;
             }
             return best;
+        }
+
+        // ── Word / line selection helpers ─────────────────────────────────────
+        private void SelectWordAt(int idx)
+        {
+            if (_text.Length == 0) return;
+            if (idx >= _text.Length) idx = _text.Length - 1;
+
+            // Braille space U+2800 ⠀ is the word separator
+            int start = idx;
+            while (start > 0 && _text[start - 1] != '⠀')
+                start--;
+
+            int end = idx;
+            while (end < _text.Length && _text[end] != '⠀')
+                end++;
+
+            if (start < end)
+            {
+                _selectionAnchor = start;
+                _cursorPos       = end;
+                _caretVisible    = true;
+                Invalidate();
+            }
+        }
+
+        private void SelectLineAt(int idx)
+        {
+            if (_text.Length == 0) return;
+            float cellW = CellPx;
+
+            // Compute which visual row each character lands on (same layout as rendering)
+            var charRow = new int[_text.Length];
+            int col = 0, row = 0;
+            for (int i = 0; i < _text.Length; i++)
+            {
+                float ox = PAD + col * cellW;
+                if (ox + cellW > Width - PAD) { row++; col = 0; }
+                charRow[i] = row;
+                col++;
+            }
+
+            int safeIdx  = Math.Max(0, Math.Min(idx, _text.Length - 1));
+            int targetRow = charRow[safeIdx];
+
+            int start = _text.Length, end = -1;
+            for (int i = 0; i < _text.Length; i++)
+            {
+                if (charRow[i] == targetRow)
+                {
+                    if (i < start) start = i;
+                    if (i > end)   end   = i;
+                }
+            }
+
+            if (end >= 0)
+            {
+                _selectionAnchor = start;
+                _cursorPos       = end + 1;
+                _caretVisible    = true;
+                Invalidate();
+            }
+        }
+
+        private void SelectAll()
+        {
+            if (_text.Length == 0) return;
+            _selectionAnchor = 0;
+            _cursorPos       = _text.Length;
+            _caretVisible    = true;
+            Invalidate();
         }
 
         // ── Resize handle geometry ────────────────────────────────────────────
@@ -412,10 +501,32 @@ namespace BrailleUrdu
         // ── Mouse ─────────────────────────────────────────────────────────────
         protected override void OnMouseDown(MouseEventArgs e)
         {
-            base.OnMouseDown(e);
-            Focus();
+            // Capture screen coords BEFORE base.OnMouseDown: WinForms fires focus
+            // internally which can trigger AutoScroll and physically move the HWND,
+            // making a post-move PointToScreen give the wrong drag anchor.
             _mouseDownScreen = PointToScreen(e.Location);
-            _startLocation   = Location;
+            base.OnMouseDown(e);
+            // WM_SETFOCUS fires before WM_LBUTTONDOWN, so OnGotFocus (and the canvas GotFocus
+            // handler that sets IsSelected) has already run by the time we get here.
+            // _justGotFocus tells us whether this is the very click that gained focus.
+            bool wasInTextMode = _textEditMode;
+            bool justGotFocus  = _justGotFocus;
+            _justGotFocus      = false; // consume — next click on this already-focused box won't see it
+            Focus();
+
+            // e.Clicks from WinForms is unreliable beyond 2 — track rapid consecutive clicks ourselves.
+            {
+                int   nowTick = Environment.TickCount;
+                Point scr     = _mouseDownScreen; // reuse pre-focus-scroll capture
+                Size  dblSz   = SystemInformation.DoubleClickSize;
+                bool  same    = Math.Abs(scr.X - _lastClickScreen.X) <= dblSz.Width / 2 &&
+                                Math.Abs(scr.Y - _lastClickScreen.Y) <= dblSz.Height / 2;
+                bool  inTime  = unchecked(nowTick - _lastClickTick) <= SystemInformation.DoubleClickTime;
+                _ownClickCount   = (same && inTime) ? _ownClickCount + 1 : 1;
+                _lastClickTick   = nowTick;
+                _lastClickScreen = scr;
+            }
+            _startLocation   = Location; // captured after any focus-induced scroll
             _startSize       = Size;
             _activeHandle    = HitTest(e.Location);
             _resizing        = _activeHandle != ResizeHandle.None;
@@ -437,14 +548,34 @@ namespace BrailleUrdu
 
             if (_activeHandle == ResizeHandle.None)
             {
-                if (e.Clicks >= 2 || _textEditMode)
+                int idx = TextIndexAt(e.Location);
+
+                if (wasInTextMode)
                 {
-                    int idx = TextIndexAt(e.Location);
-                    if (_textEditMode && (ModifierKeys & Keys.Shift) != 0)
+                    // Already editing: cursor / word / all by click count.
+                    _pendingClickIdx = -1;
+                    if ((ModifierKeys & Keys.Shift) != 0)
                     { _cursorPos = idx; _caretVisible = true; Invalidate(); }
-                    else
-                        EnterTextMode(idx);
+                    else if (_ownClickCount >= 3) { SelectAll(); }
+                    else if (_ownClickCount == 2) { SelectWordAt(idx); }
+                    else                          { EnterTextMode(idx); }
                 }
+                else if (!justGotFocus)
+                {
+                    if (_ownClickCount >= 3)
+                    {
+                        // Triple-click before text mode was established: enter and select all.
+                        EnterTextMode(idx);
+                        SelectAll();
+                    }
+                    else
+                    {
+                        // Box was already focused/selected; this click places the cursor.
+                        // Defer to mouse-up so the user can still drag the box.
+                        _pendingClickIdx = idx;
+                    }
+                }
+                // else justGotFocus: this click is what selected the box — no cursor yet.
             }
         }
 
@@ -473,18 +604,22 @@ namespace BrailleUrdu
 
             if (_dragging)
             {
+                var canvas = Parent as ScrollableControl;
+                int minX   = canvas?.AutoScrollPosition.X ?? 0;
+                int minY   = canvas?.AutoScrollPosition.Y ?? 0;
+
                 if (_groupStartLocations != null)
                 {
                     foreach (var kvp in _groupStartLocations)
                         kvp.Key.Location = new Point(
-                            Math.Max(0, kvp.Value.X + dx),
-                            Math.Max(0, kvp.Value.Y + dy));
+                            Math.Max(minX, kvp.Value.X + dx),
+                            Math.Max(minY, kvp.Value.Y + dy));
                 }
                 else
                 {
                     Location = new Point(
-                        Math.Max(0, _startLocation.X + dx),
-                        Math.Max(0, _startLocation.Y + dy));
+                        Math.Max(minX, _startLocation.X + dx),
+                        Math.Max(minY, _startLocation.Y + dy));
                 }
                 return;
             }
@@ -541,6 +676,16 @@ namespace BrailleUrdu
             _activeHandle        = ResizeHandle.None;
             _groupStartLocations = null;
             Capture              = false;
+
+            if (_pendingClickIdx >= 0)
+            {
+                var ds  = SystemInformation.DragSize;
+                var scr = PointToScreen(e.Location);
+                if (Math.Abs(scr.X - _mouseDownScreen.X) <= ds.Width &&
+                    Math.Abs(scr.Y - _mouseDownScreen.Y) <= ds.Height)
+                    EnterTextMode(_pendingClickIdx);
+                _pendingClickIdx = -1;
+            }
         }
 
         // ── Keyboard ──────────────────────────────────────────────────────────
@@ -604,14 +749,24 @@ namespace BrailleUrdu
                     break;
 
                 case Keys.Left:
-                    if (_textEditMode && _cursorPos > 0)
-                    { _cursorPos--; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    if (_textEditMode)
+                    {
+                        if (HasSelection && !e.Shift)
+                        { _cursorPos = SelStart; _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                        else if (_cursorPos > 0)
+                        { _cursorPos--; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    }
                     e.Handled = true;
                     break;
 
                 case Keys.Right:
-                    if (_textEditMode && _cursorPos < _text.Length)
-                    { _cursorPos++; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    if (_textEditMode)
+                    {
+                        if (HasSelection && !e.Shift)
+                        { _cursorPos = SelEnd; _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                        else if (_cursorPos < _text.Length)
+                        { _cursorPos++; if (!e.Shift) _selectionAnchor = _cursorPos; _caretVisible = true; Invalidate(); }
+                    }
                     e.Handled = true;
                     break;
 
@@ -676,6 +831,7 @@ namespace BrailleUrdu
         protected override void OnGotFocus(EventArgs e)
         {
             base.OnGotFocus(e);
+            _justGotFocus    = true;
             _textEditMode    = false;
             _selectionAnchor = _cursorPos;
             _caretVisible    = false;

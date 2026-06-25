@@ -19,6 +19,7 @@ namespace BrailleUrdu
             this.pagesPanel      = new PagesPanel(() => this.canvasPanel.PageChanged());
             this.toolbarPanel    = new ToolbarPanel();
             this.canvasPanel      = new CanvasPanel();
+            this.pagesPanel.SetCanvas(this.canvasPanel);
             this.centerContainer  = new Panel { Dock = DockStyle.Fill };
             this.propertiesPanel  = new PropertiesPanel(this.canvasPanel);
 
@@ -37,7 +38,7 @@ namespace BrailleUrdu
             this.navigation.UndoClicked              += (s, e) => this.canvasPanel.EditUndo();
             this.navigation.BrailleFindClicked       += (s, e) => this.OnBrailleFind();
             this.navigation.BrailleReplaceClicked    += (s, e) => this.OnBrailleReplace();
-            this.navigation.InsertPageNumberClicked  += (s, e) => this.canvasPanel.InsertPageNumber();
+            this.navigation.InsertPageNumberClicked  += (s, e) => this.OnInsertPageNumber();
             this.navigation.TextFindClicked          += (s, e) => this.OnTextFind();
             this.navigation.TextReplaceClicked       += (s, e) => this.OnTextReplace();
             this.navigation.CutClicked           += (s, e) => this.canvasPanel.EditCut();

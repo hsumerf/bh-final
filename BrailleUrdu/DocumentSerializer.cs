@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Drawing.Printing;
 using System.Globalization;
 using System.IO;
 using System.Windows.Forms;
@@ -62,6 +63,7 @@ namespace BrailleUrdu
             DocumentPage.HEIGHT_MM = ParseF(root, "heightMm", 297f);
 
             canvas.ClearAll();
+            canvas.AutoScrollPosition = Point.Empty; // reset scroll so loaded positions are physical=logical
             Document.Pages.Clear();
             Document.CurrentPageIndex = 0;
 
@@ -108,6 +110,44 @@ namespace BrailleUrdu
                     bmp.Save(file, ImageFormat.Png);
                 }
             }
+        }
+
+        // ── Export PDF ────────────────────────────────────────────────────────
+
+        public static void ExportPdf(string path, CanvasPanel canvas)
+        {
+            const string PRINTER = "Microsoft Print to PDF";
+
+            bool found = false;
+            foreach (string p in PrinterSettings.InstalledPrinters)
+                if (string.Equals(p, PRINTER, StringComparison.OrdinalIgnoreCase))
+                { found = true; break; }
+
+            if (!found)
+                throw new InvalidOperationException(
+                    "'Microsoft Print to PDF' is not available on this system.\n" +
+                    "Please install it via Windows Settings > Printers & Scanners.");
+
+            int pageIdx = 0;
+            var doc = new PrintDocument();
+            doc.PrinterSettings.PrinterName  = PRINTER;
+            doc.PrinterSettings.PrintToFile  = true;
+            doc.PrinterSettings.PrintFileName = path;
+
+            // Convert document page size from mm to hundredths-of-inch
+            int wHundredths = (int)(DocumentPage.WIDTH_MM  / 25.4f * 100);
+            int hHundredths = (int)(DocumentPage.HEIGHT_MM / 25.4f * 100);
+            doc.DefaultPageSettings.PaperSize = new PaperSize("Custom", wHundredths, hHundredths);
+            doc.DefaultPageSettings.Margins   = new Margins(0, 0, 0, 0);
+
+            doc.PrintPage += (s, pe) =>
+            {
+                canvas.RenderPageToPrinter(pe.Graphics, Document.Pages[pageIdx]);
+                pageIdx++;
+                pe.HasMorePages = pageIdx < Document.Pages.Count;
+            };
+
+            doc.Print();
         }
 
         // ── Snapshot / restore (used by undo) ────────────────────────────────
@@ -219,8 +259,12 @@ namespace BrailleUrdu
         {
             float  pxMm   = canvas.PxPerMm;
             PointF origin = canvas.PageOriginPx;
-            float  xMm    = (ctrl.Location.X - origin.X) / pxMm;
-            float  yMm    = (ctrl.Location.Y - origin.Y) / pxMm;
+            // AutoScroll only shifts controls that have a Win32 HWND (visible or previously shown).
+            // Invisible controls without handles are already at their logical positions.
+            int    scrollX = ctrl.IsHandleCreated ? canvas.AutoScrollPosition.X : 0;
+            int    scrollY = ctrl.IsHandleCreated ? canvas.AutoScrollPosition.Y : 0;
+            float  xMm    = ((ctrl.Location.X - scrollX) - origin.X) / pxMm;
+            float  yMm    = ((ctrl.Location.Y - scrollY) - origin.Y) / pxMm;
             float  wMm    = ctrl.Width  / pxMm;
             float  hMm    = ctrl.Height / pxMm;
 
@@ -274,9 +318,25 @@ namespace BrailleUrdu
                     ce.InnerText = Convert.ToBase64String(ms.ToArray());
                 }
             }
-            else if (ctrl is PageNumberBox)
+            else if (ctrl is LineBox lb)
+            {
+                ce = xd.CreateElement("LineBox");
+                ce.SetAttribute("direction", lb.Direction == LineBox.LineDirection.Vertical ? "v" : "h");
+                ce.SetAttribute("lineColor", ToHex(lb.LineColor));
+                ce.SetAttribute("thickness", lb.LineThickness.ToString());
+            }
+            else if (ctrl is TableBox tab)
+            {
+                ce = xd.CreateElement("TableBox");
+                ce.SetAttribute("lineColor", ToHex(tab.LineColor));
+                ce.SetAttribute("thickness", tab.LineThickness.ToString());
+                ce.SetAttribute("rowSpec",   tab.RowSpec);
+                ce.SetAttribute("colSpec",   tab.ColSpec);
+            }
+            else if (ctrl is PageNumberBox pnbSave)
             {
                 ce = xd.CreateElement("PageNumberBox");
+                ce.SetAttribute("braille", pnbSave.IsBraille ? "1" : "0");
             }
 
             if (ce != null)
@@ -362,8 +422,34 @@ namespace BrailleUrdu
                     catch { }
                     break;
 
+                case "LineBox":
+                    ctrl = new LineBox
+                    {
+                        Direction     = ce.GetAttribute("direction") == "v"
+                                        ? LineBox.LineDirection.Vertical
+                                        : LineBox.LineDirection.Horizontal,
+                        LineColor     = FromHex(ce.GetAttribute("lineColor")),
+                        LineThickness = ParseI(ce, "thickness", 1),
+                        Size          = new Size(pw, ph)
+                    };
+                    break;
+
+                case "TableBox":
+                    ctrl = new TableBox
+                    {
+                        LineColor     = FromHex(ce.GetAttribute("lineColor")),
+                        LineThickness = ParseI(ce, "thickness", 1),
+                        RowSpec       = ce.GetAttribute("rowSpec"),
+                        ColSpec       = ce.GetAttribute("colSpec"),
+                        Size          = new Size(pw, ph)
+                    };
+                    break;
+
                 case "PageNumberBox":
-                    ctrl = new PageNumberBox();
+                    ctrl = new PageNumberBox
+                    {
+                        IsBraille = ce.GetAttribute("braille") == "1"
+                    };
                     break;
             }
 

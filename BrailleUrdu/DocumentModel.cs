@@ -3,39 +3,51 @@ using System.Drawing;
 
 namespace BrailleUrdu
 {
-    // Global document state — accessible from any class via Document.Pages / Document.CurrentPage
-    public static class Document
+    // Per-window document state.  Each Form1 instance owns one Document; the
+    // static properties delegate to whichever window is currently active.
+    public class Document
     {
-        public static List<DocumentPage> Pages { get; } = new List<DocumentPage> { new DocumentPage() };
+        // ── Ambient context ───────────────────────────────────────────────────
+        private static Document _current = new Document();
 
-        public static int CurrentPageIndex { get; set; } = 0;
+        public static void SetCurrent(Document doc) { if (doc != null) _current = doc; }
 
-        // -1 = MasterOdd (applies to pages 1, 3, 5…), -2 = MasterEven (pages 2, 4, 6…)
-        public static DocumentPage MasterOdd  { get; } = new DocumentPage();
-        public static DocumentPage MasterEven { get; } = new DocumentPage();
-
-        public static bool IsOnMasterPage => CurrentPageIndex < 0;
-
+        // ── Static passthrough accessors — all existing call-sites unchanged ──
+        public static List<DocumentPage> Pages          => _current._pages;
+        public static int CurrentPageIndex
+        {
+            get => _current._currentPageIndex;
+            set => _current._currentPageIndex = value;
+        }
+        public static DocumentPage MasterOdd  => _current._masterOdd;
+        public static DocumentPage MasterEven => _current._masterEven;
+        public static bool IsOnMasterPage     => _current._currentPageIndex < 0;
         public static DocumentPage CurrentPage =>
-            CurrentPageIndex == -1 ? MasterOdd  :
-            CurrentPageIndex == -2 ? MasterEven :
-            Pages[CurrentPageIndex];
+            _current._currentPageIndex == -1 ? _current._masterOdd  :
+            _current._currentPageIndex == -2 ? _current._masterEven :
+            _current._pages[_current._currentPageIndex];
 
-        // ── Language ──────────────────────────────────────────────────────────
-        public static LanguageSpec  Spec { get; } = LanguageSpec.Load("en");
+        public static LanguageSpec Spec { get; } = LanguageSpec.Load("en");
 
         public static void AddPage()
         {
-            Pages.Add(new DocumentPage());
+            _current._pages.Add(new DocumentPage());
         }
 
         public static void RemovePage(int index)
         {
-            if (Pages.Count <= 1 || index < 0 || index >= Pages.Count) return;
-            Pages.RemoveAt(index);
-            if (CurrentPageIndex >= Pages.Count)
-                CurrentPageIndex = Pages.Count - 1;
+            var p = _current._pages;
+            if (p.Count <= 1 || index < 0 || index >= p.Count) return;
+            p.RemoveAt(index);
+            if (_current._currentPageIndex >= p.Count)
+                _current._currentPageIndex = p.Count - 1;
         }
+
+        // ── Per-instance data ─────────────────────────────────────────────────
+        private readonly List<DocumentPage> _pages            = new List<DocumentPage> { new DocumentPage() };
+        private          int                _currentPageIndex = 0;
+        private readonly DocumentPage       _masterOdd        = new DocumentPage();
+        private readonly DocumentPage       _masterEven       = new DocumentPage();
     }
 
     // Per-language display name, print font, and text direction

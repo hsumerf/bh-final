@@ -10,14 +10,22 @@ namespace BrailleUrdu
     {
         private const int PAD = 6;
 
-        private string     _displayText         = "#";
-        private bool       _dragging;
-        private Point      _mouseDownScreen;
-        private Point      _startLocation;
+        private static float PxPerMm => 96f / 25.4f * 1.10f;
+        private static int   CellPx  => (int)(DocumentPage.CELL_WIDTH_MM  * PxPerMm);
+        private static int   LinePx  => (int)(DocumentPage.LINE_HEIGHT_MM * PxPerMm);
+
+        private string _displayText  = "#";
+        private string _brailleText  = "⠼";   // braille placeholder on master page
+
+        private bool  _dragging;
+        private Point _mouseDownScreen;
+        private Point _startLocation;
         private Dictionary<Control, Point> _groupStartLocations;
 
-        public bool   IsSelected  { get; set; }
-        public string DisplayText => _displayText;
+        public bool   IsSelected      { get; set; }
+        public bool   IsBraille       { get; set; }
+        public string DisplayText     => _displayText;
+        public string BrailleDisplayText => _brailleText;
 
         public PageNumberBox()
         {
@@ -38,8 +46,28 @@ namespace BrailleUrdu
         public void UpdateNumber(int pageIndex)
         {
             _displayText = pageIndex < 0 ? "#" : (pageIndex + 1).ToString();
+            _brailleText = PageNumToBraille(_displayText);
             FitSize();
             Invalidate();
+        }
+
+        // Stateless helper used by the render pipeline so it doesn't depend on cached _brailleText.
+        public string GetBrailleForPage(int pageIdx)
+            => PageNumToBraille(pageIdx < 0 ? "#" : (pageIdx + 1).ToString());
+
+        // Converts a page-number string to its braille Unicode representation.
+        // "#" (master-page placeholder) → number indicator ⠼ alone.
+        private static string PageNumToBraille(string numStr)
+        {
+            if (numStr == "#") return "⠼⠁"; // placeholder: indicator + digit 1 so width matches real pages
+            var sb = new System.Text.StringBuilder();
+            sb.Append('⠼'); // number indicator — must precede braille digits
+            foreach (char c in numStr)
+            {
+                string cell = BrailleMapper.ToBraille(c);
+                if (!string.IsNullOrEmpty(cell)) sb.Append(cell);
+            }
+            return sb.ToString();
         }
 
         private void FitSize()
@@ -47,13 +75,23 @@ namespace BrailleUrdu
             if (!IsHandleCreated) return;
             try
             {
-                using (var font = MakeFont())
-                using (var g    = CreateGraphics())
+                if (IsBraille)
                 {
-                    var sz = g.MeasureString(_displayText, font);
+                    int cells = Math.Max(1, _brailleText.Length);
                     Size = new Size(
-                        Math.Max(MinimumSize.Width,  (int)sz.Width  + PAD * 2),
-                        Math.Max(MinimumSize.Height, (int)sz.Height + PAD));
+                        Math.Max(MinimumSize.Width,  PAD * 2 + cells * CellPx),
+                        Math.Max(MinimumSize.Height, PAD + LinePx));
+                }
+                else
+                {
+                    using (var font = MakeFont())
+                    using (var g    = CreateGraphics())
+                    {
+                        var sz = g.MeasureString(_displayText, font);
+                        Size = new Size(
+                            Math.Max(MinimumSize.Width,  (int)sz.Width  + PAD * 2),
+                            Math.Max(MinimumSize.Height, (int)sz.Height + PAD));
+                    }
                 }
             }
             catch { }
@@ -88,17 +126,10 @@ namespace BrailleUrdu
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.None;
 
-            using (var font  = MakeFont())
-            using (var brush = new SolidBrush(Color.Black))
-            {
-                var fmt = new StringFormat
-                {
-                    Alignment     = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
-                g.DrawString(_displayText, font, brush,
-                    new RectangleF(0, 0, Width, Height), fmt);
-            }
+            if (IsBraille)
+                DrawBrailleDots(g);
+            else
+                DrawText(g);
 
             if (Focused)
             {
@@ -117,12 +148,65 @@ namespace BrailleUrdu
             }
         }
 
+        private void DrawText(Graphics g)
+        {
+            using (var font  = MakeFont())
+            using (var brush = new SolidBrush(Color.Black))
+            {
+                var fmt = new StringFormat
+                {
+                    Alignment     = StringAlignment.Center,
+                    LineAlignment = StringAlignment.Center
+                };
+                g.DrawString(_displayText, font, brush,
+                    new RectangleF(0, 0, Width, Height), fmt);
+            }
+        }
+
+        private void DrawBrailleDots(Graphics g)
+        {
+            if (string.IsNullOrEmpty(_brailleText)) return;
+
+            float dotSpacePx = DocumentPage.DOT_SPACING_MM * PxPerMm;
+            float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
+            float cellW      = CellPx;
+            float lineH      = LinePx;
+            float dotOffsetX = (cellW - dotSpacePx)      / 2f;
+            float dotOffsetY = (lineH  - 2 * dotSpacePx) / 2f;
+            int   col        = 0;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
+            {
+                foreach (char c in _brailleText)
+                {
+                    if ((int)c < 0x2800 || (int)c > 0x28FF) { col++; continue; }
+
+                    float ox = PAD + col * cellW;
+                    float oy = PAD;
+                    int   bits = (int)c - 0x2800;
+
+                    for (int b = 0; b < 8; b++)
+                    {
+                        if ((bits & (1 << b)) == 0) continue;
+                        int   dcol = b < 6 ? b / 3 : b - 6;
+                        int   drow = b < 6 ? b % 3 : 3;
+                        float cx   = ox + dotOffsetX + dcol * dotSpacePx;
+                        float cy   = oy + dotOffsetY + drow * dotSpacePx;
+                        g.FillEllipse(brush, cx - dotRad, cy - dotRad, dotRad * 2, dotRad * 2);
+                    }
+                    col++;
+                }
+            }
+            g.SmoothingMode = SmoothingMode.None;
+        }
+
         // ── Mouse (drag only — no resize) ─────────────────────────────────────
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            _mouseDownScreen = PointToScreen(e.Location);
             base.OnMouseDown(e);
             Focus();
-            _mouseDownScreen = PointToScreen(e.Location);
             _startLocation   = Location;
             _dragging        = true;
             Capture          = true;
@@ -146,18 +230,22 @@ namespace BrailleUrdu
             int dx = screen.X - _mouseDownScreen.X;
             int dy = screen.Y - _mouseDownScreen.Y;
 
+            var canvas = Parent as ScrollableControl;
+            int minX   = canvas?.AutoScrollPosition.X ?? 0;
+            int minY   = canvas?.AutoScrollPosition.Y ?? 0;
+
             if (_groupStartLocations != null)
             {
                 foreach (var kvp in _groupStartLocations)
                     kvp.Key.Location = new Point(
-                        Math.Max(0, kvp.Value.X + dx),
-                        Math.Max(0, kvp.Value.Y + dy));
+                        Math.Max(minX, kvp.Value.X + dx),
+                        Math.Max(minY, kvp.Value.Y + dy));
             }
             else
             {
                 Location = new Point(
-                    Math.Max(0, _startLocation.X + dx),
-                    Math.Max(0, _startLocation.Y + dy));
+                    Math.Max(minX, _startLocation.X + dx),
+                    Math.Max(minY, _startLocation.Y + dy));
             }
         }
 

@@ -17,6 +17,8 @@ namespace BrailleUrdu
         private readonly Dictionary<DocumentPage, List<Control>> _pageControls
             = new Dictionary<DocumentPage, List<Control>>();
 
+        private MarginGuideOverlay _overlay;
+
         private float  _zoom     = 1.10f;
         private string _viewMode = "Braille & Print"; // "Braille & Print" | "Braille" | "Print"
 
@@ -71,6 +73,10 @@ namespace BrailleUrdu
             UpdateScrollSize();
             SelectionChanged += ctrl => _focused = ctrl;
             _lastOriginX = PageOrigin().X;
+
+            _overlay = new MarginGuideOverlay(this);
+            Controls.Add(_overlay);
+            ControlAdded += (s, ev) => { if (ev.Control != _overlay) _overlay?.BringToFront(); };
         }
 
         // ── Coordinate helpers ────────────────────────────────────────────────
@@ -106,6 +112,23 @@ namespace BrailleUrdu
                 (int)(PageHeightPx + PAGE_PADDING * 2));
         }
 
+        // Prevent WinForms from auto-scrolling the canvas when a child control
+        // gains focus (e.g. clicking a large TactileBox would jump the scroll).
+        protected override Point ScrollToControl(Control activeControl)
+            => DisplayRectangle.Location;
+
+        protected override void OnScroll(ScrollEventArgs se)
+        {
+            base.OnScroll(se);
+            _overlay?.Invalidate();
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            base.OnMouseWheel(e);
+            _overlay?.Invalidate();
+        }
+
         // ── Painting ──────────────────────────────────────────────────────────
 
         protected override void OnPaint(PaintEventArgs e)
@@ -131,9 +154,6 @@ namespace BrailleUrdu
             // Page surface
             g.FillRectangle(Brushes.White, px, py, pw, ph);
 
-            // Margin guides (pink lines — same visual as screenshot)
-            DrawMarginGuides(g, px, py, pw, ph);
-
             // Page border
             using (var border = new Pen(Color.FromArgb(190, 190, 190), 1))
                 g.DrawRectangle(border, px, py, pw, ph);
@@ -158,18 +178,27 @@ namespace BrailleUrdu
         private void DrawMarginGuides(Graphics g, float px, float py, float pw, float ph)
         {
             var page = Document.CurrentPage;
-            using (var pen = new Pen(Color.FromArgb(230, 160, 175), 1))
+            using (var pen = new Pen(Color.Red, 2f))
             {
                 float ml = MmToPx(page.MarginLeft);
                 float mr = MmToPx(page.MarginRight);
                 float mt = MmToPx(page.MarginTop);
                 float mb = MmToPx(page.MarginBottom);
 
-                g.DrawLine(pen, px + ml,      py,      px + ml,      py + ph); // left
-                g.DrawLine(pen, px + pw - mr, py,      px + pw - mr, py + ph); // right
-                g.DrawLine(pen, px,           py + mt, px + pw,      py + mt); // top
-                g.DrawLine(pen, px,           py + ph - mb, px + pw, py + ph - mb); // bottom
+                g.DrawLine(pen, px + ml,      py,           px + ml,      py + ph); // left
+                g.DrawLine(pen, px + pw - mr, py,           px + pw - mr, py + ph); // right
+                g.DrawLine(pen, px,           py + mt,      px + pw,      py + mt); // top
+                g.DrawLine(pen, px,           py + ph - mb, px + pw,      py + ph - mb); // bottom
             }
+        }
+
+        internal void PaintMarginOverlay(Graphics g)
+        {
+            if (Document.CurrentPage == null) return;
+            g.SmoothingMode   = SmoothingMode.AntiAlias;
+            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
+            var origin = PageOrigin();
+            DrawMarginGuides(g, origin.X, origin.Y, PageWidthPx, PageHeightPx);
         }
 
         // ── Element rendering ─────────────────────────────────────────────────
@@ -271,9 +300,14 @@ namespace BrailleUrdu
 
         private static void SetSelected(Control ctrl, bool selected)
         {
-            if (ctrl is BrailleTextBox b)        b.IsSelected = selected;
-            else if (ctrl is PrintTextBox p)      p.IsSelected = selected;
+            if      (ctrl is BrailleTextBox b)   b.IsSelected   = selected;
+            else if (ctrl is PrintTextBox p)      p.IsSelected   = selected;
             else if (ctrl is PageNumberBox pnb)   pnb.IsSelected = selected;
+            else if (ctrl is LineBox lb)          lb.IsSelected  = selected;
+            else if (ctrl is TableBox tab)        tab.IsSelected = selected;
+            else if (ctrl is ImageBox ib)         ib.IsSelected  = selected;
+            else if (ctrl is TactileBox tb)       tb.IsSelected  = selected;
+            ctrl.Invalidate();
         }
 
         private static Rectangle MakeClientRect(Point a, Point b) => new Rectangle(
@@ -320,6 +354,8 @@ namespace BrailleUrdu
         // Called whenever the active page changes (add / remove / select / master switch)
         public void PageChanged()
         {
+            AutoScrollPosition = Point.Empty;
+
             var  current     = Document.CurrentPage;
             bool isOnMaster  = Document.IsOnMasterPage;
             int  pageIdx     = Document.CurrentPageIndex; // ≥ 0 when on a regular page
@@ -368,8 +404,11 @@ namespace BrailleUrdu
                     bool show = shouldShow;
                     if (show && _viewMode != "Braille & Print")
                     {
-                        bool isBrailleCtrl = ctrl is BrailleTextBox || ctrl is TactileBox;
-                        bool isPrintCtrl   = ctrl is PrintTextBox  || ctrl is ImageBox || ctrl is PageNumberBox;
+                        bool isBrailleCtrl = ctrl is BrailleTextBox || ctrl is TactileBox
+                                             || (ctrl is PageNumberBox pnbB && pnbB.IsBraille);
+                        bool isPrintCtrl   = ctrl is PrintTextBox  || ctrl is ImageBox
+                                             || ctrl is LineBox || ctrl is TableBox
+                                             || (ctrl is PageNumberBox pnbP && !pnbP.IsBraille);
                         if (_viewMode == "Braille" && !isBrailleCtrl) show = false;
                         if (_viewMode == "Print"   && !isPrintCtrl)   show = false;
                     }
@@ -408,13 +447,30 @@ namespace BrailleUrdu
 
             ClearSelection();
             UpdateScrollSize();
+            _overlay?.BringToFront();
             Invalidate();
+            _overlay?.Invalidate();
         }
 
         public void SetViewMode(string mode)
         {
             _viewMode = mode;
             PageChanged();
+        }
+
+        // Returns false when the current view mode should suppress this control from rendering.
+        // Mirrors the same filter applied to ctrl.Visible in PageChanged().
+        private bool ShouldRender(Control ctrl)
+        {
+            if (_viewMode == "Braille & Print") return true;
+            bool isBraille = ctrl is BrailleTextBox || ctrl is TactileBox
+                             || (ctrl is PageNumberBox pnbB && pnbB.IsBraille);
+            bool isPrint   = ctrl is PrintTextBox   || ctrl is ImageBox
+                             || ctrl is LineBox || ctrl is TableBox
+                             || (ctrl is PageNumberBox pnbP && !pnbP.IsBraille);
+            if (_viewMode == "Braille") return isBraille;
+            if (_viewMode == "Print")   return isPrint;
+            return true;
         }
 
         // ── Tools ─────────────────────────────────────────────────────────────
@@ -576,17 +632,17 @@ namespace BrailleUrdu
             }
         }
 
-        public void InsertPageNumber()
+        public void InsertPageNumber(bool braille)
         {
             var origin = PageOrigin();
 
             foreach (var masterPage in new[] { Document.MasterOdd, Document.MasterEven })
             {
                 if (_pageControls.TryGetValue(masterPage, out var existing) &&
-                    existing.Exists(c => c is PageNumberBox))
-                    continue; // already has one
+                    existing.Exists(c => c is PageNumberBox pnbEx && pnbEx.IsBraille == braille))
+                    continue; // already has one of this type
 
-                var pnb = new PageNumberBox();
+                var pnb = new PageNumberBox { IsBraille = braille };
                 int x   = (int)(origin.X + MmToPx(15f) - pnb.Width);
                 int y   = (int)(origin.Y + MmToPx(15f) - pnb.Height);
                 pnb.Location = new Point(Math.Max(0, x), Math.Max(0, y));
@@ -634,17 +690,37 @@ namespace BrailleUrdu
 
             if (!_pageControls.TryGetValue(page, out var controls)) return;
 
-            // Also collect master-page overlay controls for this page index
             int pageIdx  = Document.Pages.IndexOf(page);
             var master   = (pageIdx % 2 == 0) ? Document.MasterOdd : Document.MasterEven;
+            var other    = (pageIdx % 2 == 0) ? Document.MasterEven : Document.MasterOdd;
             var allCtrls = new System.Collections.Generic.List<Control>(controls);
             if (_pageControls.TryGetValue(master, out var masterCtrls))
                 allCtrls.AddRange(masterCtrls);
+            // If the primary master has no page number of a given type, pull it from the other master.
+            // Handles documents saved before page numbers were mirrored to both masters.
+            if (_pageControls.TryGetValue(other, out var otherCtrls))
+                foreach (var c in otherCtrls)
+                {
+                    if (!(c is PageNumberBox pnbFb)) continue;
+                    bool have = false;
+                    foreach (var ec in allCtrls)
+                        if (ec is PageNumberBox ep && ep.IsBraille == pnbFb.IsBraille) { have = true; break; }
+                    if (!have) allCtrls.Add(c);
+                }
+
+            // AutoScroll only repositions controls that have a Win32 HWND.
+            // Invisible controls without handles stay at logical positions.
+            int scrollDX = AutoScrollPosition.X;
+            int scrollDY = AutoScrollPosition.Y;
 
             foreach (var ctrl in allCtrls)
             {
-                float mmX = (ctrl.Location.X - originX) / screenPxPerMm;
-                float mmY = (ctrl.Location.Y - originY) / screenPxPerMm;
+                if (!ShouldRender(ctrl)) continue;
+
+                int   sdx = ctrl.IsHandleCreated ? scrollDX : 0;
+                int   sdy = ctrl.IsHandleCreated ? scrollDY : 0;
+                float mmX = ((ctrl.Location.X - sdx) - originX) / screenPxPerMm;
+                float mmY = ((ctrl.Location.Y - sdy) - originY) / screenPxPerMm;
                 float mmW = ctrl.Width  / screenPxPerMm;
                 float mmH = ctrl.Height / screenPxPerMm;
                 var   rc  = new RectangleF(mmX, mmY, mmW, mmH);
@@ -750,17 +826,29 @@ namespace BrailleUrdu
                 }
                 else if (ctrl is PageNumberBox pnb)
                 {
-                    using (var font  = new Font("Segoe UI", 9.5f, GraphicsUnit.Point))
-                    using (var brush = new SolidBrush(Color.Black))
+                    if (pnb.IsBraille)
                     {
-                        var fmt = new StringFormat
+                        string bt = pnb.GetBrailleForPage(pageIdx);
+                        if (!string.IsNullOrEmpty(bt))
                         {
-                            Alignment     = StringAlignment.Center,
-                            LineAlignment = StringAlignment.Center
-                        };
-                        // Show the actual page number (1-based) on printed output
-                        string text = (pageIdx + 1).ToString();
-                        g.DrawString(text, font, brush, rc, fmt);
+                            float brailleMm = DocumentPage.LINE_HEIGHT_MM * 0.72f;
+                            using (var font  = new Font("SimBraille", brailleMm, GraphicsUnit.Millimeter))
+                            using (var brush = new SolidBrush(Color.Black))
+                                g.DrawString(bt, font, brush, rc);
+                        }
+                    }
+                    else
+                    {
+                        using (var font  = new Font("Segoe UI", 9.5f, GraphicsUnit.Point))
+                        using (var brush = new SolidBrush(Color.Black))
+                        {
+                            var fmt = new StringFormat
+                            {
+                                Alignment     = StringAlignment.Center,
+                                LineAlignment = StringAlignment.Center
+                            };
+                            g.DrawString((pageIdx + 1).ToString(), font, brush, rc, fmt);
+                        }
                     }
                 }
             }
@@ -981,7 +1069,8 @@ namespace BrailleUrdu
                 foreach (Control ctrl in Controls)
                 {
                     if (!ctrl.Visible || !ctrl.Enabled) continue;
-                    if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox || ctrl is PageNumberBox)) continue;
+                    if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox || ctrl is PageNumberBox
+                          || ctrl is LineBox || ctrl is TableBox || ctrl is ImageBox || ctrl is TactileBox)) continue;
                     if (!content.IntersectsWith(ctrl.Bounds)) continue;
                     SetSelected(ctrl, true);
                     if (!_selectedControls.Contains(ctrl)) _selectedControls.Add(ctrl);
@@ -1090,21 +1179,46 @@ namespace BrailleUrdu
             int ph  = Math.Max(1, (int)Math.Ceiling(PageHeightPx));
             var bmp = new System.Drawing.Bitmap(pw, ph);
 
+            _pageControls.TryGetValue(page, out var pageControls);
+            int pageIdx  = Document.Pages.IndexOf(page);
+            var master   = (pageIdx % 2 == 0) ? Document.MasterOdd : Document.MasterEven;
+            var other    = (pageIdx % 2 == 0) ? Document.MasterEven : Document.MasterOdd;
+            var allCtrls = new System.Collections.Generic.List<Control>(
+                pageControls ?? new System.Collections.Generic.List<Control>());
+            if (_pageControls.TryGetValue(master, out var masterCtrls2)) allCtrls.AddRange(masterCtrls2);
+            if (_pageControls.TryGetValue(other, out var otherCtrls2))
+                foreach (var c in otherCtrls2)
+                {
+                    if (!(c is PageNumberBox pnbFb)) continue;
+                    bool have = false;
+                    foreach (var ec in allCtrls)
+                        if (ec is PageNumberBox ep && ep.IsBraille == pnbFb.IsBraille) { have = true; break; }
+                    if (!have) allCtrls.Add(c);
+                }
+
             using (var g = System.Drawing.Graphics.FromImage(bmp))
             {
                 g.Clear(System.Drawing.Color.White);
                 g.SmoothingMode = SmoothingMode.AntiAlias;
 
-                if (!_pageControls.TryGetValue(page, out var controls))
-                    return bmp;
-
                 var   origin  = PageOrigin();
                 float pxPerMm = MmToPx(1f);
 
-                foreach (var ctrl in controls)
+                // AutoScroll only physically repositions controls that have a Win32 HWND.
+                // Invisible controls that have never been shown have no handle and stay
+                // at their logical positions, so only subtract the scroll offset for
+                // handle-bearing controls.
+                int scrollDX = AutoScrollPosition.X;
+                int scrollDY = AutoScrollPosition.Y;
+
+                foreach (var ctrl in allCtrls)
                 {
-                    float x  = ctrl.Location.X - origin.X;
-                    float y  = ctrl.Location.Y - origin.Y;
+                    if (!ShouldRender(ctrl)) continue;
+
+                    int   sdx = ctrl.IsHandleCreated ? scrollDX : 0;
+                    int   sdy = ctrl.IsHandleCreated ? scrollDY : 0;
+                    float x  = (ctrl.Location.X - sdx) - origin.X;
+                    float y  = (ctrl.Location.Y - sdy) - origin.Y;
                     var   rc = new System.Drawing.RectangleF(x, y, ctrl.Width, ctrl.Height);
 
                     if (ctrl is PrintTextBox ptb)
@@ -1210,18 +1324,32 @@ namespace BrailleUrdu
                     }
                     else if (ctrl is PageNumberBox pnb)
                     {
-                        int pgIdx = Document.Pages.IndexOf(page);
-                        string numText = pgIdx >= 0 ? (pgIdx + 1).ToString() : "#";
-                        using (var font  = new System.Drawing.Font("Segoe UI", 9.5f,
-                                               System.Drawing.GraphicsUnit.Point))
-                        using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                        if (pnb.IsBraille)
                         {
-                            var fmt = new System.Drawing.StringFormat
+                            string bt = pnb.GetBrailleForPage(pageIdx);
+                            if (!string.IsNullOrEmpty(bt))
                             {
-                                Alignment     = System.Drawing.StringAlignment.Center,
-                                LineAlignment = System.Drawing.StringAlignment.Center
-                            };
-                            g.DrawString(numText, font, brush, rc, fmt);
+                                float braillePx = DocumentPage.LINE_HEIGHT_MM * (96f / 25.4f) * 0.72f;
+                                using (var font  = new System.Drawing.Font("SimBraille", braillePx,
+                                                       System.Drawing.GraphicsUnit.Pixel))
+                                using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                                    g.DrawString(bt, font, brush, rc);
+                            }
+                        }
+                        else
+                        {
+                            string num = pageIdx >= 0 ? (pageIdx + 1).ToString() : "#";
+                            using (var font  = new System.Drawing.Font("Segoe UI", 9.5f,
+                                                   System.Drawing.GraphicsUnit.Point))
+                            using (var brush = new System.Drawing.SolidBrush(System.Drawing.Color.Black))
+                            {
+                                var fmt = new System.Drawing.StringFormat
+                                {
+                                    Alignment     = System.Drawing.StringAlignment.Center,
+                                    LineAlignment = System.Drawing.StringAlignment.Center
+                                };
+                                g.DrawString(num, font, brush, rc, fmt);
+                            }
                         }
                     }
                 }
@@ -1246,6 +1374,52 @@ namespace BrailleUrdu
             _lastOriginX = newOriginX;
             UpdateScrollSize();
             Invalidate();
+        }
+
+        // ── Margin guide overlay ──────────────────────────────────────────────
+        // Transparent control that always sits at the top of the Z-order so the
+        // red margin lines are painted OVER every content HWND (images, text
+        // boxes, tactile boxes, etc.).
+
+        private sealed class MarginGuideOverlay : Control
+        {
+            private readonly CanvasPanel _owner;
+
+            public MarginGuideOverlay(CanvasPanel owner)
+            {
+                _owner  = owner;
+                Dock    = DockStyle.Fill;
+                TabStop = false;
+                SetStyle(ControlStyles.UserPaint              |
+                         ControlStyles.AllPaintingInWmPaint   |
+                         ControlStyles.SupportsTransparentBackColor, true);
+                SetStyle(ControlStyles.OptimizedDoubleBuffer, false);
+                BackColor = Color.Transparent; // must follow SupportsTransparentBackColor
+            }
+
+            protected override CreateParams CreateParams
+            {
+                get
+                {
+                    var cp = base.CreateParams;
+                    cp.ExStyle |= 0x20; // WS_EX_TRANSPARENT — paint after siblings, see through them
+                    return cp;
+                }
+            }
+
+            // Return HTTRANSPARENT so all mouse events fall through to controls below.
+            protected override void WndProc(ref Message m)
+            {
+                if (m.Msg == 0x84) { m.Result = (IntPtr)(-1); return; } // WM_NCHITTEST
+                base.WndProc(ref m);
+            }
+
+            protected override void OnPaintBackground(PaintEventArgs e) { }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                _owner.PaintMarginOverlay(e.Graphics);
+            }
         }
     }
 }

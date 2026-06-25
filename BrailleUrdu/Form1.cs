@@ -7,13 +7,21 @@ namespace BrailleUrdu
 {
     public partial class Form1 : Form
     {
-        private string _currentFilePath;
-        private bool   _isDirty;
-        private Button _btnCollapsePages;
-        private Button _btnCollapseProps;
+        private string         _currentFilePath;
+        private bool           _isDirty;
+        private Button         _btnCollapsePages;
+        private Button         _btnCollapseProps;
+        private readonly Document _myDocument = new Document();
+        private readonly string   _fileToLoad;
 
-        public Form1()
+        // Default constructor — shows Document Setup dialog on first load.
+        public Form1() : this(null) { }
+
+        // Opens an existing file directly without showing Document Setup.
+        public Form1(string fileToLoad)
         {
+            _fileToLoad = fileToLoad;
+            Document.SetCurrent(_myDocument); // must be before InitializeComponent
             InitializeComponent();
             canvasPanel.DocumentChanged += (s, e) => _isDirty = true;
             SetupCollapseButtons();
@@ -101,8 +109,40 @@ namespace BrailleUrdu
         protected override void OnLoad(EventArgs e)
         {
             base.OnLoad(e);
-            if (new DocumentSetupDialog(canvasPanel, pagesPanel).ShowDialog(this) != DialogResult.OK)
-                Application.Exit();
+            if (_fileToLoad != null)
+            {
+                try
+                {
+                    DocumentSerializer.Load(_fileToLoad, canvasPanel, pagesPanel);
+                    _currentFilePath = _fileToLoad;
+                    _isDirty         = false;
+                    UpdateTitle();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not open file:\n" + ex.Message, "Open Failed",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else
+            {
+                if (new DocumentSetupDialog(canvasPanel, pagesPanel).ShowDialog(this) != DialogResult.OK)
+                {
+                    if (Application.OpenForms.Count <= 1)
+                        Application.Exit();
+                    else
+                        Close();
+                }
+            }
+        }
+
+        // Re-activate this window's document whenever the window gains focus.
+        protected override void OnActivated(EventArgs e)
+        {
+            base.OnActivated(e);
+            Document.SetCurrent(_myDocument);
+            canvasPanel.PageChanged();
+            pagesPanel.RebuildThumbnails();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -143,18 +183,7 @@ namespace BrailleUrdu
 
         internal void OnNewDocument()
         {
-            if (!PromptSaveIfDirty()) return;
-
-            canvasPanel.ClearAll();
-            Document.Pages.Clear();
-            Document.Pages.Add(new DocumentPage());
-            Document.CurrentPageIndex = 0;
-            canvasPanel.PageChanged();
-            pagesPanel.RebuildThumbnails();
-            _currentFilePath = null;
-            _isDirty         = false;
-            UpdateTitle();
-            new DocumentSetupDialog(canvasPanel, pagesPanel).ShowDialog(this);
+            new Form1().Show();
         }
 
         // ── Document Setup ────────────────────────────────────────────────────
@@ -169,8 +198,6 @@ namespace BrailleUrdu
 
         internal void OnOpen()
         {
-            if (!PromptSaveIfDirty()) return;
-
             using (var dlg = new OpenFileDialog
             {
                 Title  = "Open Document",
@@ -178,18 +205,7 @@ namespace BrailleUrdu
             })
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                try
-                {
-                    DocumentSerializer.Load(dlg.FileName, canvasPanel, pagesPanel);
-                    _currentFilePath = dlg.FileName;
-                    _isDirty         = false;
-                    UpdateTitle();
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Could not open file:\n" + ex.Message, "Open Failed",
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
+                new Form1(dlg.FileName).Show();
             }
         }
 
@@ -249,6 +265,17 @@ namespace BrailleUrdu
         internal void OnTextFind()    => new TextFindReplaceDialog(canvasPanel, false).ShowDialog(this);
         internal void OnTextReplace() => new TextFindReplaceDialog(canvasPanel, true).ShowDialog(this);
 
+        // ── Insert Page Number ────────────────────────────────────────────────
+
+        private void OnInsertPageNumber()
+        {
+            using (var dlg = new PageNumberTypeDialog())
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                canvasPanel.InsertPageNumber(dlg.IsBraille);
+            }
+        }
+
         // ── Braille Find / Replace ────────────────────────────────────────────
 
         internal void OnBrailleFind()    => new BrailleFindReplaceDialog(canvasPanel, false).ShowDialog(this);
@@ -260,22 +287,35 @@ namespace BrailleUrdu
         {
             using (var dlg = new SaveFileDialog
             {
-                Title      = "Export as PNG",
-                Filter     = "PNG Image (*.png)|*.png|All Files (*.*)|*.*",
-                DefaultExt = "png",
-                FileName   = _currentFilePath != null
-                             ? Path.GetFileNameWithoutExtension(_currentFilePath) : "export"
+                Title       = "Export Document",
+                Filter      = "PDF Document (*.pdf)|*.pdf|PNG Image (*.png)|*.png|All Files (*.*)|*.*",
+                DefaultExt  = "pdf",
+                FilterIndex = 1,
+                FileName    = _currentFilePath != null
+                              ? Path.GetFileNameWithoutExtension(_currentFilePath) : "export"
             })
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 try
                 {
-                    DocumentSerializer.ExportPng(dlg.FileName, canvasPanel);
-                    string msg = Document.Pages.Count == 1
-                        ? "Page exported successfully."
-                        : Document.Pages.Count + " pages exported successfully.";
-                    MessageBox.Show(msg, "Export Complete",
-                        MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (dlg.FilterIndex == 1) // PDF
+                    {
+                        DocumentSerializer.ExportPdf(dlg.FileName, canvasPanel);
+                        if (WindowState == FormWindowState.Minimized)
+                            WindowState = FormWindowState.Normal;
+                        Activate();
+                        MessageBox.Show("PDF exported successfully.", "Export Complete",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    else // PNG
+                    {
+                        DocumentSerializer.ExportPng(dlg.FileName, canvasPanel);
+                        string msg = Document.Pages.Count == 1
+                            ? "Page exported successfully."
+                            : Document.Pages.Count + " pages exported successfully.";
+                        MessageBox.Show(msg, "Export Complete",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -283,6 +323,55 @@ namespace BrailleUrdu
                         MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
+        }
+    }
+
+    // Small dialog asking whether to insert the page number as Text or Braille.
+    internal class PageNumberTypeDialog : Form
+    {
+        public bool IsBraille { get; private set; }
+
+        internal PageNumberTypeDialog()
+        {
+            Text            = "Insert Page Number";
+            FormBorderStyle = FormBorderStyle.FixedDialog;
+            StartPosition   = FormStartPosition.CenterParent;
+            ClientSize      = new Size(300, 120);
+            MaximizeBox     = false;
+            MinimizeBox     = false;
+            ShowInTaskbar   = false;
+            BackColor       = Color.FromArgb(242, 242, 242);
+
+            Controls.Add(new Label
+            {
+                Text     = "Insert page number as:",
+                Location = new Point(16, 18),
+                AutoSize = true,
+                Font     = new Font("Segoe UI", 9.5f)
+            });
+
+            var btnText = new Button
+            {
+                Text      = "Text",
+                Location  = new Point(16, 52),
+                Size      = new Size(120, 34),
+                FlatStyle = FlatStyle.System,
+                Font      = new Font("Segoe UI", 9.5f)
+            };
+            btnText.Click += (s, e) => { IsBraille = false; DialogResult = DialogResult.OK; Close(); };
+
+            var btnBraille = new Button
+            {
+                Text      = "Braille",
+                Location  = new Point(148, 52),
+                Size      = new Size(120, 34),
+                FlatStyle = FlatStyle.System,
+                Font      = new Font("Segoe UI", 9.5f)
+            };
+            btnBraille.Click += (s, e) => { IsBraille = true; DialogResult = DialogResult.OK; Close(); };
+
+            Controls.AddRange(new Control[] { btnText, btnBraille });
+            CancelButton = btnText; // Escape defaults to Text (no change)
         }
     }
 }

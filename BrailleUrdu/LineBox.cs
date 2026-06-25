@@ -16,6 +16,8 @@ namespace BrailleUrdu
         private Color         _lineColor     = Color.Black;
         private int           _lineThickness = 1;
 
+        public bool IsSelected { get; set; }
+
         public LineDirection Direction
         {
             get => _direction;
@@ -41,6 +43,7 @@ namespace BrailleUrdu
         private Point        _startLocation;
         private Size         _startSize;
         private ResizeHandle _activeHandle = ResizeHandle.None;
+        private System.Collections.Generic.Dictionary<Control, Point> _groupStartLocations;
 
         // ── Construction ──────────────────────────────────────────────────────
         public LineBox()
@@ -101,6 +104,11 @@ namespace BrailleUrdu
                         g.DrawRectangle(pen, r);
                 }
             }
+            else if (IsSelected)
+            {
+                using (var pen = new Pen(Color.DodgerBlue, 1.5f) { DashStyle = DashStyle.Dash })
+                    g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+            }
         }
 
         // ── Handle geometry ───────────────────────────────────────────────────
@@ -154,15 +162,28 @@ namespace BrailleUrdu
         // ── Mouse ─────────────────────────────────────────────────────────────
         protected override void OnMouseDown(MouseEventArgs e)
         {
+            _mouseDownScreen = PointToScreen(e.Location);
             base.OnMouseDown(e);
             Focus();
-            _mouseDownScreen = PointToScreen(e.Location);
             _startLocation   = Location;
             _startSize       = Size;
             _activeHandle    = HitTest(e.Location);
             _resizing        = _activeHandle != ResizeHandle.None;
             _dragging        = !_resizing;
             Capture          = true;
+
+            if (_dragging)
+            {
+                var canvas = Parent as CanvasPanel;
+                if (canvas != null && IsSelected && canvas.SelectedControls.Count > 1)
+                {
+                    _groupStartLocations = new System.Collections.Generic.Dictionary<Control, Point>();
+                    foreach (var c in canvas.SelectedControls)
+                        _groupStartLocations[c] = c.Location;
+                }
+                else
+                    _groupStartLocations = null;
+            }
         }
 
         protected override void OnMouseMove(MouseEventArgs e)
@@ -181,9 +202,23 @@ namespace BrailleUrdu
 
             if (_dragging)
             {
-                Location = new Point(
-                    Math.Max(0, _startLocation.X + dx),
-                    Math.Max(0, _startLocation.Y + dy));
+                var canvas = Parent as ScrollableControl;
+                int minX   = canvas?.AutoScrollPosition.X ?? 0;
+                int minY   = canvas?.AutoScrollPosition.Y ?? 0;
+
+                if (_groupStartLocations != null)
+                {
+                    foreach (var kvp in _groupStartLocations)
+                        kvp.Key.Location = new Point(
+                            Math.Max(minX, kvp.Value.X + dx),
+                            Math.Max(minY, kvp.Value.Y + dy));
+                }
+                else
+                {
+                    Location = new Point(
+                        Math.Max(minX, _startLocation.X + dx),
+                        Math.Max(minY, _startLocation.Y + dy));
+                }
                 return;
             }
 
@@ -236,8 +271,9 @@ namespace BrailleUrdu
         {
             base.OnMouseUp(e);
             _dragging = _resizing = false;
-            _activeHandle = ResizeHandle.None;
-            Capture = false;
+            _activeHandle        = ResizeHandle.None;
+            _groupStartLocations = null;
+            Capture              = false;
         }
 
         // ── Keyboard ──────────────────────────────────────────────────────────
