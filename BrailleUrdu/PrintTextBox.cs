@@ -8,8 +8,9 @@ namespace BrailleUrdu
 {
     public class PrintTextBox : UserControl
     {
-        private const int HANDLE_SIZE = 10;
-        private const int PAD         = 8;
+        private const int       HANDLE_SIZE     = 10;
+        private const int       PAD             = 8;
+        private const FontStyle SoftBreakStyle  = (FontStyle)0xFF; // sentinel for auto-wrap \n in _charStyle
 
         // ── Static defaults ───────────────────────────────────────────────────
         public static string    DefaultFontFamily = "Calibri";
@@ -115,15 +116,19 @@ namespace BrailleUrdu
         private int    _cursorPos       = 0;
         private int    _selectionAnchor = 0;
         private string _inputPending    = "";
+        private FontStyle[] _charStyle = new FontStyle[0];
 
         public string DisplayText
         {
             get => _text;
-            set { _text = value ?? ""; _cursorPos = _text.Length; _selectionAnchor = _cursorPos; FitSize(); Invalidate(); }
+            set { _text = value ?? ""; _charStyle = new FontStyle[0]; _cursorPos = _text.Length; _selectionAnchor = _cursorPos; FitSize(); Invalidate(); }
         }
 
         public bool IsSelected     { get; set; }
         public bool IsTextEditing => _textEditMode;
+
+        public int SavedSelStart { get; private set; }
+        public int SavedSelEnd   { get; private set; }
 
         private int    SelStart     => Math.Min(_selectionAnchor, _cursorPos);
         private int    SelEnd       => Math.Max(_selectionAnchor, _cursorPos);
@@ -293,6 +298,8 @@ namespace BrailleUrdu
         private void ExitTextMode()
         {
             FlushInputPending();
+            SavedSelStart    = SelStart;
+            SavedSelEnd      = SelEnd;
             _textEditMode    = false;
             _selectionAnchor = _cursorPos;
             _caretTimer.Stop();
@@ -306,17 +313,20 @@ namespace BrailleUrdu
             string flushed = _inputPending;
             _inputPending = "";
             if (flushed.Length == 0) return;
+            CharStyleInsert(_cursorPos, flushed.Length);
             _text = _text.Substring(0, _cursorPos) + flushed + _text.Substring(_cursorPos);
             _cursorPos      += flushed.Length;
             _selectionAnchor = _cursorPos;
             _caretVisible    = true;
             FitSize();
+            if (AutoWrapIfNeeded()) FitSize();
             Invalidate();
         }
 
         private void DeleteSelection()
         {
             int s = SelStart, end = SelEnd;
+            CharStyleDelete(s, end - s);
             _text            = _text.Substring(0, s) + _text.Substring(end);
             _cursorPos       = s;
             _selectionAnchor = s;
@@ -340,7 +350,8 @@ namespace BrailleUrdu
         private StringFormat MakeFmt()
         {
             var fmt = new StringFormat(StringFormat.GenericTypographic);
-            fmt.FormatFlags  |= StringFormatFlags.MeasureTrailingSpaces;
+            fmt.FormatFlags   = StringFormatFlags.NoWrap |
+                                StringFormatFlags.MeasureTrailingSpaces;
             fmt.Alignment     = _hAlign;
             fmt.LineAlignment = _vAlign;
             if (_isRtl) fmt.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
@@ -356,6 +367,29 @@ namespace BrailleUrdu
         private float TextTop   => _vAlign == StringAlignment.Near ? 0f : PAD;
         private float TextBot   => _vAlign == StringAlignment.Far  ? 0f : PAD;
 
+        private float TextStartY(Graphics g, Font font)
+        {
+            int   lineCount = Math.Max(1, _text.Split('\n').Length);
+            float lh        = font.GetHeight(g);
+            float totalH    = lh * lineCount;
+            float availH    = Height - TextTop - TextBot;
+            switch (_vAlign)
+            {
+                case StringAlignment.Near: return TextTop;
+                case StringAlignment.Far:  return TextTop + Math.Max(0f, availH - totalH);
+                default:                   return TextTop + Math.Max(0f, availH - totalH) / 2f;
+            }
+        }
+
+        private int TrWidth(IDeviceContext dc, string text, Font font)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            var flags = TextFormatFlags.NoPadding | TextFormatFlags.SingleLine |
+                        (_isRtl ? TextFormatFlags.RightToLeft : TextFormatFlags.Left);
+            return TextRenderer.MeasureText(dc, text, font,
+                new Size(int.MaxValue, int.MaxValue), flags).Width;
+        }
+
         // X-coordinate of a character whose preceding text has pixel-width `beforeWidth`,
         // in the current alignment and text-direction context.
         private float CharX(Graphics g, Font font, string ln, float beforeWidth)
@@ -365,11 +399,7 @@ namespace BrailleUrdu
 
             if (_hAlign == StringAlignment.Far)
             {
-                float lineW = ln.Length > 0
-                    ? g.MeasureString(ln, font, PointF.Empty,
-                          new StringFormat { FormatFlags = StringFormatFlags.NoWrap |
-                                                           StringFormatFlags.MeasureTrailingSpaces }).Width
-                    : 0f;
+                float lineW = TrWidth(g, ln, font);
                 return Width - TextRight - lineW + beforeWidth;
             }
 
@@ -443,12 +473,111 @@ namespace BrailleUrdu
         private void DrawText(Graphics g, Font font)
         {
             if (_text.Length == 0) return;
-            using (var fmt   = MakeFmt())
-            using (var brush = new SolidBrush(_textColor))
-                g.DrawString(_text, font, brush,
-                    new RectangleF(TextLeft, TextTop,
-                                   Width  - TextLeft - TextRight,
-                                   Height - TextTop  - TextBot), fmt);
+            EnsureCharStyle();
+
+            float    lh     = font.GetHeight(g);
+            float    startY = TextStartY(g, font);
+            float    availW = Width - TextLeft - TextRight;
+            string[] lns    = _text.Split('\n');
+
+            // Check whether all non-newline chars share a single style
+            FontStyle fs0 = _fontStyle;
+            for (int i = 0; i < _charStyle.Length; i++)
+                if (_text[i] != '\n') { fs0 = _charStyle[i]; break; }
+            bool singleStyle = true;
+            for (int i = 1; i < _charStyle.Length; i++)
+                if (_text[i] != '\n' && _charStyle[i] != fs0) { singleStyle = false; break; }
+
+            using (var noWrap = new StringFormat(StringFormat.GenericTypographic))
+            using (var brush  = new SolidBrush(_textColor))
+            {
+                noWrap.FormatFlags = StringFormatFlags.NoWrap |
+                                     StringFormatFlags.MeasureTrailingSpaces;
+                if (_isRtl) noWrap.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
+
+                if (singleStyle)
+                {
+                    Font sf = fs0 != _fontStyle
+                        ? new Font(_fontFamily, _fontSizePt, fs0, GraphicsUnit.Point)
+                        : null;
+                    try
+                    {
+                        Font df = sf ?? font;
+                        for (int li = 0; li < lns.Length; li++)
+                        {
+                            string ln    = lns[li];
+                            float  y     = startY + li * lh;
+                            float  lineW = TrWidth(g, ln, df);
+                            float  x;
+                            if (_isRtl)
+                                x = Width - TextRight - lineW;
+                            else switch (_hAlign)
+                            {
+                                case StringAlignment.Far:    x = TextLeft + availW - lineW; break;
+                                case StringAlignment.Center: x = TextLeft + (availW - lineW) / 2f; break;
+                                default:                     x = TextLeft; break;
+                            }
+                            if (ln.Length > 0)
+                                g.DrawString(ln, df, brush, new PointF(x, y), noWrap);
+                        }
+                    }
+                    finally { sf?.Dispose(); }
+                    return;
+                }
+
+                // Mixed-style: draw run by run per line
+                int charIdx = 0;
+                for (int li = 0; li < lns.Length; li++)
+                {
+                    string ln    = lns[li];
+                    float  y     = startY + li * lh;
+                    float  lineW = MeasureLineWidth(g, ln, charIdx);
+                    float  x;
+                    if (_isRtl)
+                        x = Width - TextRight - lineW;
+                    else switch (_hAlign)
+                    {
+                        case StringAlignment.Far:    x = TextLeft + availW - lineW; break;
+                        case StringAlignment.Center: x = TextLeft + (availW - lineW) / 2f; break;
+                        default:                     x = TextLeft; break;
+                    }
+
+                    int runIdx = charIdx;
+                    while (runIdx < charIdx + ln.Length)
+                    {
+                        FontStyle rs     = runIdx < _charStyle.Length ? _charStyle[runIdx] : _fontStyle;
+                        int       runEnd = runIdx + 1;
+                        while (runEnd < charIdx + ln.Length &&
+                               runEnd < _charStyle.Length && _charStyle[runEnd] == rs) runEnd++;
+                        string seg = ln.Substring(runIdx - charIdx, runEnd - runIdx);
+                        using (var rf = new Font(_fontFamily, _fontSizePt, rs, GraphicsUnit.Point))
+                        {
+                            g.DrawString(seg, rf, brush, new PointF(x, y), noWrap);
+                            x += TrWidth(g, seg, rf);
+                        }
+                        runIdx = runEnd;
+                    }
+                    charIdx += ln.Length + 1;
+                }
+            }
+        }
+
+        private float MeasureLineWidth(Graphics g, string ln, int charIdx)
+        {
+            float w      = 0f;
+            int   runIdx = charIdx;
+            while (runIdx < charIdx + ln.Length)
+            {
+                FontStyle rs     = runIdx < _charStyle.Length ? _charStyle[runIdx] : _fontStyle;
+                int       runEnd = runIdx + 1;
+                while (runEnd < charIdx + ln.Length &&
+                       runEnd < _charStyle.Length && _charStyle[runEnd] == rs) runEnd++;
+                string seg = ln.Substring(runIdx - charIdx, runEnd - runIdx);
+                using (var rf = new Font(_fontFamily, _fontSizePt, rs, GraphicsUnit.Point))
+                    w += TrWidth(g, seg, rf);
+                runIdx = runEnd;
+            }
+            return w;
         }
 
         // ── Selection highlight ───────────────────────────────────────────────
@@ -458,9 +587,9 @@ namespace BrailleUrdu
             int selStart = SelStart, selEnd = SelEnd;
             float lh = font.GetHeight(g);
             string[] lines = _text.Split('\n');
+            float startY = TextStartY(g, font);
 
             using (var selBrush = new SolidBrush(Color.FromArgb(100, 51, 153, 255)))
-            using (var fmt      = MakeFmt())
             {
                 int idx = 0;
                 for (int li = 0; li < lines.Length; li++)
@@ -468,24 +597,18 @@ namespace BrailleUrdu
                     string ln        = lines[li];
                     int    lineStart = idx;
                     int    lineEnd   = idx + ln.Length;
-                    float  y         = TextTop + li * lh;
+                    float  y         = startY + li * lh;
 
-                    int  cs              = Math.Max(selStart, lineStart) - lineStart;
-                    int  ce              = Math.Min(selEnd,   lineEnd)   - lineStart;
-                    bool newlineSel      = selEnd > lineEnd && selStart <= lineEnd && li < lines.Length - 1;
+                    int  cs         = Math.Max(selStart, lineStart) - lineStart;
+                    int  ce         = Math.Min(selEnd,   lineEnd)   - lineStart;
+                    bool newlineSel = selEnd > lineEnd && selStart <= lineEnd && li < lines.Length - 1;
 
                     if (cs < ce || newlineSel)
                     {
-                        float x1 = cs > 0
-                            ? g.MeasureString(ln.Substring(0, cs), font, PointF.Empty, fmt).Width
-                            : 0f;
-                        float x2 = ce > 0
-                            ? g.MeasureString(ln.Substring(0, ce), font, PointF.Empty, fmt).Width
-                            : 0f;
+                        float x1 = MeasurePrefixWidth(g, font, ln, idx, cs);
+                        float x2 = MeasurePrefixWidth(g, font, ln, idx, ce);
                         if (newlineSel) x2 = Math.Max(x2, x1 + 6f);
 
-                        // For RTL the logical start is on the right, so selection rect
-                        // begins at CharX(x2) (the leftmost pixel of the selection).
                         float rw = Math.Max(2f, x2 - x1);
                         float rx = _isRtl ? CharX(g, font, ln, x2) : CharX(g, font, ln, x1);
                         g.FillRectangle(selBrush, rx, y, rw, lh);
@@ -499,29 +622,24 @@ namespace BrailleUrdu
         private void DrawSearchHighlight(Graphics g, Font font)
         {
             if (string.IsNullOrEmpty(_searchHighlight) || _text.Length == 0) return;
-            string pattern = _searchHighlight;
-            float  lh      = font.GetHeight(g);
-            string[] lines = _text.Split('\n');
+            string   pattern = _searchHighlight;
+            float    lh      = font.GetHeight(g);
+            string[] lines   = _text.Split('\n');
+            float    startY  = TextStartY(g, font);
 
             using (var brush = new SolidBrush(Color.FromArgb(180, 255, 210, 0)))
-            using (var fmt   = new StringFormat(StringFormat.GenericTypographic)
-                               { FormatFlags = StringFormatFlags.NoWrap |
-                                               StringFormatFlags.MeasureTrailingSpaces })
             {
                 for (int li = 0; li < lines.Length; li++)
                 {
                     string ln    = lines[li];
-                    float  lineY = TextTop + li * lh;
+                    float  lineY = startY + li * lh;
                     int    pos   = 0;
                     while (pos <= ln.Length - pattern.Length)
                     {
                         int match = ln.IndexOf(pattern, pos, StringComparison.Ordinal);
                         if (match < 0) break;
-                        float x1 = match > 0
-                            ? g.MeasureString(ln.Substring(0, match), font, PointF.Empty, fmt).Width
-                            : 0f;
-                        float x2 = g.MeasureString(
-                            ln.Substring(0, match + pattern.Length), font, PointF.Empty, fmt).Width;
+                        float x1 = match > 0 ? TrWidth(g, ln.Substring(0, match), font) : 0f;
+                        float x2 = TrWidth(g, ln.Substring(0, match + pattern.Length), font);
                         float rw = Math.Max(2f, x2 - x1);
                         float rx = _isRtl ? CharX(g, font, ln, x2) : CharX(g, font, ln, x1);
                         g.FillRectangle(brush, rx, lineY, rw, lh);
@@ -556,26 +674,28 @@ namespace BrailleUrdu
         private PointF CursorScreenPos(Graphics g, Font font)
         {
             GetLineCol(_cursorPos, out int line, out int col);
-            string[] lines  = _text.Split('\n');
-            string   ln     = line < lines.Length ? lines[line] : "";
-            string   before = col <= ln.Length ? ln.Substring(0, col) : ln;
+            string[] lines = _text.Split('\n');
+            string   ln    = line < lines.Length ? lines[line] : "";
+            int      prefixLen = Math.Min(col, ln.Length);
+
+            int lineBase = 0;
+            for (int i = 0; i < line; i++) lineBase += lines[i].Length + 1;
 
             float lh          = font.GetHeight(g);
-            float beforeWidth = before.Length > 0
-                ? g.MeasureString(before, font, PointF.Empty, MakeFmt()).Width
-                : 0f;
-            return new PointF(CharX(g, font, ln, beforeWidth), TextTop + line * lh);
+            float startY      = TextStartY(g, font);
+            float beforeWidth = MeasurePrefixWidth(g, font, ln, lineBase, prefixLen);
+            return new PointF(CharX(g, font, ln, beforeWidth), startY + line * lh);
         }
 
         private int TextIndexAt(Point p)
         {
             using (var font = MakeFont())
             using (var g    = CreateGraphics())
-            using (var fmt  = MakeFmt())
             {
-                float    lh    = font.GetHeight(g);
-                string[] lines = _text.Split('\n');
-                int      li    = Math.Max(0, Math.Min((int)((p.Y - TextTop) / lh), lines.Length - 1));
+                float    lh     = font.GetHeight(g);
+                float    startY = TextStartY(g, font);
+                string[] lines  = _text.Split('\n');
+                int      li     = Math.Max(0, Math.Min((int)((p.Y - startY) / lh), lines.Length - 1));
 
                 int baseIdx = 0;
                 for (int i = 0; i < li; i++) baseIdx += lines[i].Length + 1;
@@ -586,9 +706,7 @@ namespace BrailleUrdu
 
                 for (int col = 0; col <= ln.Length; col++)
                 {
-                    float w  = col > 0
-                        ? g.MeasureString(ln.Substring(0, col), font, PointF.Empty, fmt).Width
-                        : 0f;
+                    float w  = MeasurePrefixWidth(g, font, ln, baseIdx, col);
                     float cx = CharX(g, font, ln, w);
                     float d  = Math.Abs(p.X - cx);
                     if (d < best) { best = d; bestCol = col; }
@@ -596,6 +714,252 @@ namespace BrailleUrdu
 
                 return Math.Min(baseIdx + bestCol, _text.Length);
             }
+        }
+
+        private float MeasurePrefixWidth(Graphics g, Font fallbackFont, string ln,
+                                         int lineCharOffset, int col)
+        {
+            if (col <= 0) return 0f;
+            EnsureCharStyle();
+
+            int end = lineCharOffset + col;
+            FontStyle fs0 = lineCharOffset < _charStyle.Length ? _charStyle[lineCharOffset] : _fontStyle;
+            bool uniform = true;
+            for (int i = lineCharOffset + 1; i < end; i++)
+            {
+                FontStyle fi = i < _charStyle.Length ? _charStyle[i] : _fontStyle;
+                if (fi != fs0) { uniform = false; break; }
+            }
+
+            if (uniform)
+            {
+                Font rf = fs0 != _fontStyle
+                    ? new Font(_fontFamily, _fontSizePt, fs0, GraphicsUnit.Point)
+                    : null;
+                try   { return TrWidth(g, ln.Substring(0, col), rf ?? fallbackFont); }
+                finally { rf?.Dispose(); }
+            }
+
+            float w   = 0f;
+            int   idx = lineCharOffset;
+            while (idx < end)
+            {
+                FontStyle rs     = idx < _charStyle.Length ? _charStyle[idx] : _fontStyle;
+                int       runEnd = idx + 1;
+                while (runEnd < end && runEnd < _charStyle.Length && _charStyle[runEnd] == rs) runEnd++;
+                string seg = ln.Substring(idx - lineCharOffset, runEnd - idx);
+                using (var rf = new Font(_fontFamily, _fontSizePt, rs, GraphicsUnit.Point))
+                    w += TrWidth(g, seg, rf);
+                idx = runEnd;
+            }
+            return w;
+        }
+
+        private void EnsureCharStyle()
+        {
+            if (_charStyle == null || _charStyle.Length != _text.Length)
+            {
+                var ns   = new FontStyle[_text.Length];
+                int copy = _charStyle != null ? Math.Min(_charStyle.Length, ns.Length) : 0;
+                for (int i = 0; i < copy; i++) ns[i] = _charStyle[i];
+                for (int i = copy; i < ns.Length; i++) ns[i] = _fontStyle;
+                _charStyle = ns;
+            }
+        }
+
+        private void CharStyleInsert(int pos, int count)
+        {
+            EnsureCharStyle();
+            var ns = new FontStyle[_charStyle.Length + count];
+            Array.Copy(_charStyle, 0, ns, 0, pos);
+            for (int i = pos; i < pos + count; i++) ns[i] = _fontStyle;
+            Array.Copy(_charStyle, pos, ns, pos + count, _charStyle.Length - pos);
+            _charStyle = ns;
+        }
+
+        private void CharStyleDelete(int pos, int count)
+        {
+            EnsureCharStyle();
+            if (count <= 0 || pos >= _charStyle.Length) return;
+            count = Math.Min(count, _charStyle.Length - pos);
+            var ns = new FontStyle[_charStyle.Length - count];
+            Array.Copy(_charStyle, 0, ns, 0, pos);
+            if (pos < ns.Length)
+                Array.Copy(_charStyle, pos + count, ns, pos, ns.Length - pos);
+            _charStyle = ns;
+        }
+
+        public void ApplyStyleToRange(int start, int end, FontStyle style)
+        {
+            if (start >= end) return;
+            EnsureCharStyle();
+            start = Math.Max(0, start);
+            end   = Math.Min(_charStyle.Length, end);
+            for (int i = start; i < end; i++) _charStyle[i] = style;
+            Invalidate();
+        }
+
+        // ── Word wrap ─────────────────────────────────────────────────────────
+        // After inserting text, call this to hard-wrap the current line if it
+        // exceeds the available box width. Returns true if a \n was inserted.
+        private bool AutoWrapIfNeeded()
+        {
+            float availW = Width - TextLeft - TextRight;
+            if (availW <= 1f) return false;
+
+            GetLineCol(_cursorPos, out int lineIdx, out int _unused);
+            string[] lines = _text.Split('\n');
+            if (lineIdx >= lines.Length) return false;
+            string ln = lines[lineIdx];
+            if (ln.Length == 0) return false;
+
+            int lineStart = 0;
+            for (int i = 0; i < lineIdx; i++) lineStart += lines[i].Length + 1;
+
+            try
+            {
+                using (var font = MakeFont())
+                using (var g    = CreateGraphics())
+                {
+                    if (MeasurePrefixWidth(g, font, ln, lineStart, ln.Length) <= availW)
+                        return false;
+
+                    // Find the last character index that still fits (overflowAt chars fit)
+                    int overflowAt = ln.Length;
+                    for (int i = 1; i <= ln.Length; i++)
+                    {
+                        if (MeasurePrefixWidth(g, font, ln, lineStart, i) > availW)
+                        {
+                            overflowAt = i - 1;
+                            break;
+                        }
+                    }
+
+                    // Walk back to find the last space within the fitting portion
+                    int spaceIdx = -1;
+                    for (int j = overflowAt - 1; j >= 0; j--)
+                    {
+                        if (ln[j] == ' ') { spaceIdx = j; break; }
+                    }
+
+                    int  insertPos;
+                    bool replaceSpace;
+                    if (spaceIdx >= 0)
+                    {
+                        insertPos    = lineStart + spaceIdx;
+                        replaceSpace = true;
+                    }
+                    else
+                    {
+                        insertPos    = lineStart + Math.Max(1, overflowAt);
+                        replaceSpace = false;
+                    }
+
+                    // Always insert \n (never replace the space); the space stays as
+                    // a trailing char on the previous line so stripping the \n restores the text exactly.
+                    int nlPos = (replaceSpace && insertPos < _text.Length && _text[insertPos] == ' ')
+                        ? insertPos + 1   // insert after the space
+                        : insertPos;      // insert before the overflowing word
+                    CharStyleInsert(nlPos, 1);
+                    _text = _text.Substring(0, nlPos) + '\n' + _text.Substring(nlPos);
+                    if (_cursorPos >= nlPos) _cursorPos++;
+                    _charStyle[nlPos] = SoftBreakStyle; // mark as auto-wrap break
+                    _selectionAnchor  = _cursorPos;
+                    return true;
+                }
+            }
+            catch { return false; }
+        }
+
+        // Strip all auto-wrap \n breaks, then re-wrap at the current box width.
+        // Called when the box is manually resized so text reflows to the new width.
+        private void ReflowText(bool fitAfter = true)
+        {
+            if (_text.Length == 0) return;
+            EnsureCharStyle();
+
+            // Remove every \n that was auto-inserted (identified by SoftBreakStyle sentinel)
+            var sb     = new System.Text.StringBuilder(_text.Length);
+            var styles = new System.Collections.Generic.List<FontStyle>(_text.Length);
+            int cursorAdj = 0, anchorAdj = 0;
+            for (int i = 0; i < _text.Length; i++)
+            {
+                bool isSoft = _text[i] == '\n' &&
+                              i < _charStyle.Length &&
+                              _charStyle[i] == SoftBreakStyle;
+                if (isSoft)
+                {
+                    if (i < _cursorPos)       cursorAdj++;
+                    if (i < _selectionAnchor) anchorAdj++;
+                    continue;
+                }
+                sb.Append(_text[i]);
+                styles.Add(i < _charStyle.Length ? _charStyle[i] : _fontStyle);
+            }
+            _text            = sb.ToString();
+            _charStyle       = styles.ToArray();
+            _cursorPos       = Math.Min(Math.Max(0, _cursorPos       - cursorAdj), _text.Length);
+            _selectionAnchor = Math.Min(Math.Max(0, _selectionAnchor - anchorAdj), _text.Length);
+
+            // Re-apply word wrap for all hard lines at the current width
+            float availW = Width - TextLeft - TextRight;
+            if (availW > 1f && _text.Length > 0 && IsHandleCreated)
+            {
+                try
+                {
+                    using (var font = MakeFont())
+                    using (var g    = CreateGraphics())
+                    {
+                        int safety = 0;
+                        int pos    = 0;
+                        while (pos < _text.Length && safety++ < 5000)
+                        {
+                            int nlIdx   = _text.IndexOf('\n', pos);
+                            int lineEnd = nlIdx >= 0 ? nlIdx : _text.Length;
+                            string ln   = _text.Substring(pos, lineEnd - pos);
+
+                            if (ln.Length == 0 || MeasurePrefixWidth(g, font, ln, pos, ln.Length) <= availW)
+                            {
+                                if (nlIdx < 0) break;
+                                pos = nlIdx + 1;
+                                continue;
+                            }
+
+                            // Find last fitting char count
+                            int overflowAt = ln.Length;
+                            for (int i = 1; i <= ln.Length; i++)
+                                if (MeasurePrefixWidth(g, font, ln, pos, i) > availW) { overflowAt = i - 1; break; }
+
+                            int spaceIdx = -1;
+                            for (int j = overflowAt - 1; j >= 0; j--)
+                                if (ln[j] == ' ') { spaceIdx = j; break; }
+
+                            int  insertPos;
+                            bool replaceSpace;
+                            if (spaceIdx >= 0) { insertPos = pos + spaceIdx; replaceSpace = true; }
+                            else               { insertPos = pos + Math.Max(1, overflowAt); replaceSpace = false; }
+
+                            int nlPos = (replaceSpace && insertPos < _text.Length && _text[insertPos] == ' ')
+                                ? insertPos + 1
+                                : insertPos;
+                            CharStyleInsert(nlPos, 1);
+                            _text = _text.Substring(0, nlPos) + '\n' + _text.Substring(nlPos);
+                            if (_cursorPos       >= nlPos) _cursorPos++;
+                            if (_selectionAnchor >= nlPos) _selectionAnchor++;
+                            _charStyle[nlPos] = SoftBreakStyle;
+
+                            // Advance past the \n; second half checked on next iteration
+                            pos = nlPos + 1;
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            _cursorPos       = Math.Min(_cursorPos,       _text.Length);
+            _selectionAnchor = Math.Min(_selectionAnchor, _text.Length);
+            if (fitAfter) FitSize();
+            Invalidate();
         }
 
         // ── Multi-line helpers ────────────────────────────────────────────────
@@ -870,15 +1234,18 @@ namespace BrailleUrdu
             }
 
             SetBounds(nx, ny, nw, nh);
+            if (nw != _startSize.Width) ReflowText(fitAfter: false);
         }
 
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            bool wasResizingWidth = _resizing && _startSize.Width != Width;
             _dragging = _resizing = false;
             _activeHandle        = ResizeHandle.None;
             _groupStartLocations = null;
             Capture              = false;
+            if (wasResizingWidth) ReflowText();
 
             if (_pendingClickIdx >= 0)
             {
@@ -908,11 +1275,13 @@ namespace BrailleUrdu
 
             if (output == null) { e.Handled = true; return; }
 
+            CharStyleInsert(_cursorPos, output.Length);
             _text            = _text.Substring(0, _cursorPos) + output + _text.Substring(_cursorPos);
             _cursorPos      += output.Length;
             _selectionAnchor = _cursorPos;
             _caretVisible    = true;
             FitSize();
+            if (AutoWrapIfNeeded()) FitSize();
             Invalidate();
             e.Handled = true;
         }
@@ -927,6 +1296,7 @@ namespace BrailleUrdu
                     else if (HasSelection) DeleteSelection();
                     else if (_cursorPos < _text.Length)
                     {
+                        CharStyleDelete(_cursorPos, 1);
                         _text = _text.Substring(0, _cursorPos) + _text.Substring(_cursorPos + 1);
                         _caretVisible = true; FitSize(); Invalidate();
                     }
@@ -939,6 +1309,7 @@ namespace BrailleUrdu
                         if (HasSelection) DeleteSelection();
                         else if (_cursorPos > 0)
                         {
+                            CharStyleDelete(_cursorPos - 1, 1);
                             _text = _text.Substring(0, _cursorPos - 1) + _text.Substring(_cursorPos);
                             _cursorPos--; _selectionAnchor = _cursorPos;
                             _caretVisible = true; FitSize(); Invalidate();
@@ -951,6 +1322,7 @@ namespace BrailleUrdu
                     FlushInputPending();
                     if (!_textEditMode) EnterTextMode();
                     if (HasSelection) DeleteSelection();
+                    CharStyleInsert(_cursorPos, 1);
                     _text = _text.Substring(0, _cursorPos) + '\n' + _text.Substring(_cursorPos);
                     _cursorPos++; _selectionAnchor = _cursorPos;
                     _caretVisible = true; FitSize(); Invalidate();
@@ -1064,11 +1436,14 @@ namespace BrailleUrdu
                         string clip = Clipboard.GetText();
                         if (!string.IsNullOrEmpty(clip))
                         {
+                            clip = clip.Replace("\r\n", "\n").Replace('\r', '\n');
                             if (HasSelection) DeleteSelection();
+                            CharStyleInsert(_cursorPos, clip.Length);
                             _text            = _text.Substring(0, _cursorPos) + clip + _text.Substring(_cursorPos);
                             _cursorPos      += clip.Length;
                             _selectionAnchor = _cursorPos;
-                            _caretVisible    = true; FitSize(); Invalidate();
+                            _caretVisible    = true;
+                            ReflowText();
                         }
                     }
                     e.Handled = true;

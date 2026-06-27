@@ -591,7 +591,13 @@ namespace BrailleUrdu
                 case 2: style = FontStyle.Italic;                  break;
                 case 3: style = FontStyle.Bold | FontStyle.Italic; break;
             }
-            _printTarget.TextFontStyle = style;
+
+            int selStart = _printTarget.SavedSelStart;
+            int selEnd   = _printTarget.SavedSelEnd;
+            if (selStart < selEnd)
+                _printTarget.ApplyStyleToRange(selStart, selEnd, style);
+            else
+                _printTarget.TextFontStyle = style;
         }
 
         private void ApplyBorder()
