@@ -21,7 +21,8 @@ namespace BrailleUrdu
                     if (dlg.ShowDialog() != DialogResult.OK) return;
             }
 
-            Application.Run(new Form1());
+            new Form1().Show();
+            Application.Run(); // exits only when Application.Exit() is called
         }
     }
 

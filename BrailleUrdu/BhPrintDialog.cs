@@ -270,7 +270,6 @@ namespace BrailleUrdu
 
                 MessageBox.Show("Document sent to printer.", "Print",
                     MessageBoxButtons.OK, MessageBoxIcon.Information);
-                Close();
             }
             catch (Exception ex)
             {

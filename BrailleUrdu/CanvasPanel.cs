@@ -492,7 +492,6 @@ namespace BrailleUrdu
             int     maxBot  = int.MinValue;
             foreach (var ctrl in controls)
             {
-                if (!(ctrl is PrintTextBox || ctrl is BrailleTextBox)) continue;
                 int bot = ctrl.Bottom;
                 if (bot > maxBot) { maxBot = bot; lowest = ctrl; }
             }
@@ -534,9 +533,11 @@ namespace BrailleUrdu
 
                 var origin = PageOrigin();
                 var page   = Document.CurrentPage;
-                var loc    = new Point(
-                    (int)(origin.X + MmToPx(page.MarginLeft)),
-                    (int)(origin.Y + MmToPx(page.MarginTop)));
+                var loc    = StackMode
+                    ? StackLocation()
+                    : new Point(
+                        (int)(origin.X + MmToPx(page.MarginLeft)),
+                        (int)(origin.Y + MmToPx(page.MarginTop)));
 
                 var box = new ImageBox(img) { Location = loc };
                 RegisterControl(box);
@@ -577,11 +578,14 @@ namespace BrailleUrdu
         {
             var origin = PageOrigin();
             var page   = Document.CurrentPage;
-            int x = (int)(origin.X + MmToPx(page.MarginLeft));
-            int y = (int)(origin.Y + MmToPx(page.MarginTop));
             int w = (int)(PageWidthPx - MmToPx(page.MarginLeft) - MmToPx(page.MarginRight));
+            var loc = StackMode
+                ? StackLocation()
+                : new Point(
+                    (int)(origin.X + MmToPx(page.MarginLeft)),
+                    (int)(origin.Y + MmToPx(page.MarginTop)));
 
-            var box = new LineBox { Location = new Point(x, y), Size = new Size(w, 20) };
+            var box = new LineBox { Location = loc, Size = new Size(w, 20) };
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
@@ -593,13 +597,16 @@ namespace BrailleUrdu
         {
             var origin = PageOrigin();
             var page   = Document.CurrentPage;
-            int x = (int)(origin.X + MmToPx(page.MarginLeft));
-            int y = (int)(origin.Y + MmToPx(page.MarginTop));
             int w = (int)(PageWidthPx - MmToPx(page.MarginLeft) - MmToPx(page.MarginRight));
+            var loc = StackMode
+                ? StackLocation()
+                : new Point(
+                    (int)(origin.X + MmToPx(page.MarginLeft)),
+                    (int)(origin.Y + MmToPx(page.MarginTop)));
 
             var box = new TableBox
             {
-                Location = new Point(x, y),
+                Location = loc,
                 Size     = new Size(w, 80),
                 RowSpec  = "1-1",
                 ColSpec  = "1-1"
@@ -619,9 +626,11 @@ namespace BrailleUrdu
 
                 var origin = PageOrigin();
                 var page   = Document.CurrentPage;
-                var loc    = new Point(
-                    (int)(origin.X + MmToPx(page.MarginLeft)),
-                    (int)(origin.Y + MmToPx(page.MarginTop)));
+                var loc    = StackMode
+                    ? StackLocation()
+                    : new Point(
+                        (int)(origin.X + MmToPx(page.MarginLeft)),
+                        (int)(origin.Y + MmToPx(page.MarginTop)));
 
                 var box = new TactileBox { Location = loc, DotGrid = dlg.ResultGrid };
                 RegisterControl(box);
@@ -727,9 +736,14 @@ namespace BrailleUrdu
 
                 if (ctrl is PrintTextBox ptb)
                 {
+                    // Exclude the transparent handle-pad margin from the rendered content rect
+                    float hpmm  = PrintTextBox.HandlePad / screenPxPerMm;
+                    var   ptbRc = new RectangleF(mmX + hpmm, mmY + hpmm,
+                                                 mmW - 2 * hpmm, mmH - 2 * hpmm);
+
                     if (!ptb.FillTransparent)
                         using (var b = new SolidBrush(ptb.FillColor))
-                            g.FillRectangle(b, rc);
+                            g.FillRectangle(b, ptbRc);
 
                     if (!string.IsNullOrEmpty(ptb.DisplayText))
                         using (var font  = new Font(ptb.FontFamily, ptb.FontSizePt,
@@ -743,7 +757,7 @@ namespace BrailleUrdu
                             };
                             if (ptb.IsRightToLeft)
                                 fmt.FormatFlags |= StringFormatFlags.DirectionRightToLeft;
-                            g.DrawString(ptb.DisplayText, font, brush, rc, fmt);
+                            g.DrawString(ptb.DisplayText, font, brush, ptbRc, fmt);
                         }
 
                     if (ptb.BorderWidth > 0)
@@ -751,13 +765,13 @@ namespace BrailleUrdu
                                                  ptb.BorderWidth / screenPxPerMm))
                         {
                             if (ptb.BorderTop)
-                                g.DrawLine(pen, rc.Left,  rc.Top,    rc.Right, rc.Top);
+                                g.DrawLine(pen, ptbRc.Left,  ptbRc.Top,    ptbRc.Right, ptbRc.Top);
                             if (ptb.BorderBottom)
-                                g.DrawLine(pen, rc.Left,  rc.Bottom, rc.Right, rc.Bottom);
+                                g.DrawLine(pen, ptbRc.Left,  ptbRc.Bottom, ptbRc.Right, ptbRc.Bottom);
                             if (ptb.BorderLeft)
-                                g.DrawLine(pen, rc.Left,  rc.Top,    rc.Left,  rc.Bottom);
+                                g.DrawLine(pen, ptbRc.Left,  ptbRc.Top,    ptbRc.Left,  ptbRc.Bottom);
                             if (ptb.BorderRight)
-                                g.DrawLine(pen, rc.Right, rc.Top,    rc.Right, rc.Bottom);
+                                g.DrawLine(pen, ptbRc.Right, ptbRc.Top,    ptbRc.Right, ptbRc.Bottom);
                         }
                 }
                 else if (ctrl is BrailleTextBox btb && !string.IsNullOrEmpty(btb.BrailleText))
@@ -1004,17 +1018,25 @@ namespace BrailleUrdu
         {
             if (string.IsNullOrEmpty(_clipboard)) return;
             PushUndo();
-            var ctrls     = DocumentSerializer.DeserializeControls(_clipboard, this);
-            Control last  = null;
+            var ctrls = DocumentSerializer.DeserializeControls(_clipboard, this);
+            if (ctrls.Count == 0) return;
+
+            ClearSelection();
+            Control last = null;
             foreach (var ctrl in ctrls)
             {
                 ctrl.Location = new Point(ctrl.Location.X + 20, ctrl.Location.Y + 20);
                 RegisterControl(ctrl);
                 Controls.Add(ctrl);
                 ctrl.BringToFront();
+                // Pre-populate selection so the GotFocus handler (which checks
+                // _selectedControls.Contains) does not wipe it on last.Focus().
+                _selectedControls.Add(ctrl);
+                SetSelected(ctrl, true);
                 last = ctrl;
             }
             if (last != null) last.Focus();
+            SelectionChanged?.Invoke(last);
         }
 
         public void EditDuplicate()
@@ -1223,9 +1245,14 @@ namespace BrailleUrdu
 
                     if (ctrl is PrintTextBox ptb)
                     {
+                        // Exclude the transparent handle-pad margin from the rendered content rect
+                        int hp    = PrintTextBox.HandlePad;
+                        var ptbRc = new System.Drawing.RectangleF(
+                            x + hp, y + hp, ctrl.Width - hp * 2, ctrl.Height - hp * 2);
+
                         if (!ptb.FillTransparent)
                             using (var b = new System.Drawing.SolidBrush(ptb.FillColor))
-                                g.FillRectangle(b, rc);
+                                g.FillRectangle(b, ptbRc);
 
                         if (!string.IsNullOrEmpty(ptb.DisplayText))
                         {
@@ -1241,7 +1268,7 @@ namespace BrailleUrdu
                                 };
                                 if (ptb.IsRightToLeft)
                                     fmt.FormatFlags |= System.Drawing.StringFormatFlags.DirectionRightToLeft;
-                                g.DrawString(ptb.DisplayText, font, brush, rc, fmt);
+                                g.DrawString(ptb.DisplayText, font, brush, ptbRc, fmt);
                             }
                         }
 
@@ -1249,13 +1276,13 @@ namespace BrailleUrdu
                             using (var pen = new System.Drawing.Pen(ptb.BorderColor, ptb.BorderWidth))
                             {
                                 if (ptb.BorderTop)
-                                    g.DrawLine(pen, rc.Left, rc.Top,    rc.Right, rc.Top);
+                                    g.DrawLine(pen, ptbRc.Left, ptbRc.Top,    ptbRc.Right, ptbRc.Top);
                                 if (ptb.BorderBottom)
-                                    g.DrawLine(pen, rc.Left, rc.Bottom, rc.Right, rc.Bottom);
+                                    g.DrawLine(pen, ptbRc.Left, ptbRc.Bottom, ptbRc.Right, ptbRc.Bottom);
                                 if (ptb.BorderLeft)
-                                    g.DrawLine(pen, rc.Left, rc.Top,    rc.Left,  rc.Bottom);
+                                    g.DrawLine(pen, ptbRc.Left, ptbRc.Top,    ptbRc.Left,  ptbRc.Bottom);
                                 if (ptb.BorderRight)
-                                    g.DrawLine(pen, rc.Right, rc.Top,   rc.Right, rc.Bottom);
+                                    g.DrawLine(pen, ptbRc.Right, ptbRc.Top,   ptbRc.Right, ptbRc.Bottom);
                             }
                     }
                     else if (ctrl is BrailleTextBox btb && !string.IsNullOrEmpty(btb.BrailleText))

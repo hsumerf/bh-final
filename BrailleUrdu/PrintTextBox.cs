@@ -10,10 +10,11 @@ namespace BrailleUrdu
     {
         private const int       HANDLE_SIZE     = 10;
         private const int       PAD             = 8;
+        public  const int       HandlePad       = 5; // transparent margin on each side; handles live here
         private const FontStyle SoftBreakStyle  = (FontStyle)0xFF; // sentinel for auto-wrap \n in _charStyle
 
         // ── Static defaults ───────────────────────────────────────────────────
-        public static string    DefaultFontFamily = "Calibri";
+        public static string    DefaultFontFamily = "Segoe UI";
         public static float     DefaultFontSizePt = 12f;
         public static FontStyle DefaultFontStyle  = FontStyle.Regular;
         public static Color     DefaultTextColor  = Color.Black;
@@ -189,7 +190,7 @@ namespace BrailleUrdu
             ResizeRedraw = true;
             BackColor    = Color.Transparent;
             TabStop      = true;
-            MinimumSize  = new Size(60, 22);
+            MinimumSize  = new Size(60 + HandlePad * 2, 22 + HandlePad * 2);
             RightToLeft  = _isRtl ? RightToLeft.Yes : RightToLeft.No;
             ImeMode      = ImeMode.On;
 
@@ -216,7 +217,7 @@ namespace BrailleUrdu
                     {
                         int lines = Math.Max(1, _text.Split('\n').Length);
                         int newH  = Math.Max(MinimumSize.Height,
-                            (int)Math.Ceiling(font.GetHeight(96f) * lines) + PAD * 2 + 2);
+                            (int)Math.Ceiling(font.GetHeight(96f) * lines) + 2 + HandlePad * 2);
                         if (Height != newH) Height = newH;
                     }
                 }
@@ -249,7 +250,7 @@ namespace BrailleUrdu
                             if (w > maxLineW) maxLineW = w;
                         }
                     }
-                    int contentW = (int)Math.Ceiling(maxLineW) + PAD * 2 + 4;
+                    int contentW = (int)Math.Ceiling(maxLineW) + PAD * 2 + 4 + HandlePad * 2;
                     int newWidth = maxWidth == int.MaxValue
                         ? Math.Max(Width, Math.Max(MinimumSize.Width, contentW))
                         : Math.Max(Width, Math.Max(MinimumSize.Width, Math.Min(contentW, maxWidth)));
@@ -260,14 +261,14 @@ namespace BrailleUrdu
                     {
                         var wrapFmt = new StringFormat(StringFormat.GenericTypographic);
                         measuredH = g.MeasureString(_text, font,
-                            newWidth - PAD * 2, wrapFmt).Height;
+                            newWidth - PAD * 2 - HandlePad * 2, wrapFmt).Height;
                     }
                     else
                     {
                         measuredH = font.GetHeight(g);
                     }
                     int newHeight = Math.Max(MinimumSize.Height,
-                        (int)Math.Ceiling(measuredH) + PAD * 2 + 2);
+                        (int)Math.Ceiling(measuredH) + 2 + HandlePad * 2);
 
                     if (Width != newWidth || Height != newHeight)
                         SetBounds(Left, Top, newWidth, newHeight);
@@ -360,12 +361,12 @@ namespace BrailleUrdu
 
         // Edge padding: 0 on the side the text is aligned to, PAD otherwise.
         // RTL swaps Near/Far so Near still means "the natural reading start edge".
-        private float TextLeft  => (!_isRtl && _hAlign == StringAlignment.Near) ||
-                                   ( _isRtl && _hAlign == StringAlignment.Far)  ? 0f : PAD;
-        private float TextRight => (!_isRtl && _hAlign == StringAlignment.Far)  ||
-                                   ( _isRtl && _hAlign == StringAlignment.Near) ? 0f : PAD;
-        private float TextTop   => _vAlign == StringAlignment.Near ? 0f : PAD;
-        private float TextBot   => _vAlign == StringAlignment.Far  ? 0f : PAD;
+        private float TextLeft  => HandlePad + ((!_isRtl && _hAlign == StringAlignment.Near) ||
+                                               ( _isRtl && _hAlign == StringAlignment.Far)  ? 0f : PAD);
+        private float TextRight => HandlePad + ((!_isRtl && _hAlign == StringAlignment.Far)  ||
+                                               ( _isRtl && _hAlign == StringAlignment.Near) ? 0f : PAD);
+        private float TextTop   => (float)HandlePad;
+        private float TextBot   => (float)HandlePad;
 
         private float TextStartY(Graphics g, Font font)
         {
@@ -429,7 +430,7 @@ namespace BrailleUrdu
 
             if (!_fillTransparent)
                 using (var b = new SolidBrush(_fillColor))
-                    g.FillRectangle(b, 0, 0, Width, Height);
+                    g.FillRectangle(b, HandlePad, HandlePad, Width - HandlePad * 2, Height - HandlePad * 2);
 
             using (var font = MakeFont())
             {
@@ -442,12 +443,13 @@ namespace BrailleUrdu
                     if (_textEditMode && _caretVisible) DrawCaret(g, font);
 
                     using (var pen = new Pen(Color.DodgerBlue, 2f))
-                        g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+                        g.DrawRectangle(pen, HandlePad, HandlePad,
+                            Width - HandlePad * 2 - 1, Height - HandlePad * 2 - 1);
 
                     foreach (var h in new[] {
-                        ResizeHandle.TopLeft,    ResizeHandle.TopCenter,    ResizeHandle.TopRight,
-                        ResizeHandle.MiddleLeft,                            ResizeHandle.MiddleRight,
-                        ResizeHandle.BottomLeft, ResizeHandle.BottomCenter, ResizeHandle.BottomRight })
+                        ResizeHandle.TopLeft,    ResizeHandle.TopRight,
+                        ResizeHandle.MiddleLeft, ResizeHandle.MiddleRight,
+                        ResizeHandle.BottomLeft, ResizeHandle.BottomRight })
                     {
                         var r = GetHandleRect(h);
                         g.FillRectangle(Brushes.DodgerBlue, r);
@@ -458,12 +460,14 @@ namespace BrailleUrdu
                 else if (IsSelected)
                 {
                     using (var pen = new Pen(Color.DodgerBlue, 1.5f) { DashStyle = DashStyle.Dash })
-                        g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+                        g.DrawRectangle(pen, HandlePad, HandlePad,
+                            Width - HandlePad * 2 - 1, Height - HandlePad * 2 - 1);
                 }
                 else if (_text.Length == 0)
                 {
                     using (var pen = new Pen(Color.FromArgb(160, 160, 160), 1f) { DashStyle = DashStyle.Dash })
-                        g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
+                        g.DrawRectangle(pen, HandlePad, HandlePad,
+                            Width - HandlePad * 2 - 1, Height - HandlePad * 2 - 1);
                 }
             }
 
@@ -655,10 +659,12 @@ namespace BrailleUrdu
             using (var pen = new Pen(_borderColor, _borderWidth))
             {
                 float half = _borderWidth / 2f;
-                if (_borderTop)    g.DrawLine(pen, 0,          half,          Width,      half);
-                if (_borderBottom) g.DrawLine(pen, 0,          Height - half, Width,      Height - half);
-                if (_borderLeft)   g.DrawLine(pen, half,       0,             half,       Height);
-                if (_borderRight)  g.DrawLine(pen, Width-half, 0,             Width-half, Height);
+                float l = HandlePad, r = Width  - HandlePad;
+                float t = HandlePad, b = Height - HandlePad;
+                if (_borderTop)    g.DrawLine(pen, l, t + half,          r, t + half);
+                if (_borderBottom) g.DrawLine(pen, l, b - half,          r, b - half);
+                if (_borderLeft)   g.DrawLine(pen, l + half, t, l + half, b);
+                if (_borderRight)  g.DrawLine(pen, r - half, t, r - half, b);
             }
         }
 
@@ -1035,26 +1041,29 @@ namespace BrailleUrdu
         // ── Resize handle geometry ────────────────────────────────────────────
         private Rectangle GetHandleRect(ResizeHandle h)
         {
-            int w = Width, ht = Height, s = HANDLE_SIZE, half = s / 2;
+            int w = Width, ht = Height;
+            const int cs = 8;  // corner square side
+            const int ew = 12; // edge handle long dimension
+            int ep = HandlePad; // edge handle short dimension (fills the margin)
             switch (h)
             {
-                case ResizeHandle.TopLeft:      return new Rectangle(0,          0,          s, s);
-                case ResizeHandle.TopCenter:    return new Rectangle(w/2 - half, 0,          s, s);
-                case ResizeHandle.TopRight:     return new Rectangle(w - s,      0,          s, s);
-                case ResizeHandle.MiddleLeft:   return new Rectangle(0,          ht/2-half,  s, s);
-                case ResizeHandle.MiddleRight:  return new Rectangle(w - s,      ht/2-half,  s, s);
-                case ResizeHandle.BottomLeft:   return new Rectangle(0,          ht - s,     s, s);
-                case ResizeHandle.BottomCenter: return new Rectangle(w/2 - half, ht - s,     s, s);
-                case ResizeHandle.BottomRight:  return new Rectangle(w - s,      ht - s,     s, s);
+                // Corner squares straddle the content-box border
+                case ResizeHandle.TopLeft:      return new Rectangle(ep - cs/2,      ep - cs/2,      cs, cs);
+                case ResizeHandle.TopRight:     return new Rectangle(w - ep - cs/2,  ep - cs/2,      cs, cs);
+                case ResizeHandle.BottomLeft:   return new Rectangle(ep - cs/2,      ht - ep - cs/2, cs, cs);
+                case ResizeHandle.BottomRight:  return new Rectangle(w - ep - cs/2,  ht - ep - cs/2, cs, cs);
+                // Edge rectangles live entirely in the transparent margin strip
+                case ResizeHandle.MiddleLeft:   return new Rectangle(0,       ht/2 - ew/2, ep, ew);
+                case ResizeHandle.MiddleRight:  return new Rectangle(w - ep,  ht/2 - ew/2, ep, ew);
                 default: return Rectangle.Empty;
             }
         }
 
         private static readonly ResizeHandle[] _resizeHandles =
         {
-            ResizeHandle.TopLeft,    ResizeHandle.TopCenter,    ResizeHandle.TopRight,
-            ResizeHandle.MiddleLeft,                            ResizeHandle.MiddleRight,
-            ResizeHandle.BottomLeft, ResizeHandle.BottomCenter, ResizeHandle.BottomRight
+            ResizeHandle.TopLeft,   ResizeHandle.TopRight,
+            ResizeHandle.MiddleLeft, ResizeHandle.MiddleRight,
+            ResizeHandle.BottomLeft, ResizeHandle.BottomRight
         };
 
         private ResizeHandle HitTest(Point p)

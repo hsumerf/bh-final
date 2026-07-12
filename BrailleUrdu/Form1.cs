@@ -127,12 +127,7 @@ namespace BrailleUrdu
             else
             {
                 if (new DocumentSetupDialog(canvasPanel, pagesPanel).ShowDialog(this) != DialogResult.OK)
-                {
-                    if (Application.OpenForms.Count <= 1)
-                        Application.Exit();
-                    else
-                        Close();
-                }
+                    Close(); // OnFormClosed will call Application.Exit() if this was the last window
             }
         }
 
@@ -150,6 +145,13 @@ namespace BrailleUrdu
             if (!PromptSaveIfDirty())
                 e.Cancel = true;
             base.OnFormClosing(e);
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            base.OnFormClosed(e);
+            if (Application.OpenForms.Count == 0)
+                Application.Exit();
         }
 
         // ── Unsaved-changes guard ─────────────────────────────────────────────
