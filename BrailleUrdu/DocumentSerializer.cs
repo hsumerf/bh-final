@@ -289,6 +289,9 @@ namespace BrailleUrdu
                 ce.SetAttribute("fillTransparent", ptb.FillTransparent ? "1" : "0");
                 ce.SetAttribute("rtl",             ptb.IsRightToLeft ? "1" : "0");
                 ce.SetAttribute("text",            ptb.DisplayText);
+                string csData = ptb.CharStyleData;
+                if (!string.IsNullOrEmpty(csData))
+                    ce.SetAttribute("charStyles",  csData);
             }
             else if (ctrl is BrailleTextBox btb)
             {
@@ -367,7 +370,8 @@ namespace BrailleUrdu
             switch (ce.Name)
             {
                 case "PrintBox":
-                    ctrl = new PrintTextBox
+                {
+                    var ptbLoad = new PrintTextBox
                     {
                         FontFamily      = ce.GetAttribute("font"),
                         FontSizePt      = ParseF(ce, "sizePt", 12f),
@@ -384,10 +388,15 @@ namespace BrailleUrdu
                         FillColor       = FromHex(ce.GetAttribute("fillColor")),
                         FillTransparent = ce.GetAttribute("fillTransparent") != "0",
                         IsRightToLeft   = ce.GetAttribute("rtl") == "1",
-                        DisplayText     = ce.GetAttribute("text"),
+                        DisplayText     = ce.GetAttribute("text"), // resets _charStyle — must be before CharStyleData
                         Width           = pw
                     };
+                    string csData = ce.GetAttribute("charStyles");
+                    if (!string.IsNullOrEmpty(csData))
+                        ptbLoad.CharStyleData = csData;
+                    ctrl = ptbLoad;
                     break;
+                }
 
                 case "BrailleBox":
                     ctrl = new BrailleTextBox

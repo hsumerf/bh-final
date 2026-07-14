@@ -595,9 +595,15 @@ namespace BrailleUrdu
             int selStart = _printTarget.SavedSelStart;
             int selEnd   = _printTarget.SavedSelEnd;
             if (selStart < selEnd)
+            {
                 _printTarget.ApplyStyleToRange(selStart, selEnd, style);
+            }
             else
+            {
+                // No text selection (box selected, or cursor-only): apply to all content
                 _printTarget.TextFontStyle = style;
+                _printTarget.ApplyStyleToRange(0, _printTarget.DisplayText.Length, style);
+            }
         }
 
         private void ApplyBorder()

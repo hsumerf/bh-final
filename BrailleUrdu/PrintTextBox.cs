@@ -801,8 +801,39 @@ namespace BrailleUrdu
             EnsureCharStyle();
             start = Math.Max(0, start);
             end   = Math.Min(_charStyle.Length, end);
-            for (int i = start; i < end; i++) _charStyle[i] = style;
+            for (int i = start; i < end; i++)
+                if (_charStyle[i] != SoftBreakStyle) // preserve auto-wrap \n markers
+                    _charStyle[i] = style;
             Invalidate();
+        }
+
+        // Compact style string for serialization: one digit ('0'-'3') per character
+        // in _text, using '0' at soft-break \n positions. Empty when all chars use
+        // the box default style (the common case).
+        public string CharStyleData
+        {
+            get
+            {
+                EnsureCharStyle();
+                bool anyNonDefault = false;
+                for (int i = 0; i < _charStyle.Length; i++)
+                    if (_charStyle[i] != SoftBreakStyle && _charStyle[i] != _fontStyle)
+                    { anyNonDefault = true; break; }
+                if (!anyNonDefault) return "";
+                var sb = new System.Text.StringBuilder(_charStyle.Length);
+                for (int i = 0; i < _charStyle.Length; i++)
+                    sb.Append(_charStyle[i] == SoftBreakStyle ? '0' : (char)('0' + (int)_charStyle[i]));
+                return sb.ToString();
+            }
+            set
+            {
+                if (string.IsNullOrEmpty(value)) return;
+                EnsureCharStyle();
+                for (int i = 0; i < _charStyle.Length && i < value.Length; i++)
+                    if (_charStyle[i] != SoftBreakStyle && char.IsDigit(value[i]))
+                        _charStyle[i] = (FontStyle)(value[i] - '0');
+                Invalidate();
+            }
         }
 
         // ── Word wrap ─────────────────────────────────────────────────────────
