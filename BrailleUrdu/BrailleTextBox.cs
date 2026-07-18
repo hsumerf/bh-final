@@ -147,19 +147,60 @@ namespace BrailleUrdu
             int singleLineW = PAD * 2 + _text.Length * cellW;
             int newWidth    = Math.Max(MinimumSize.Width, Math.Min(singleLineW, maxWidth));
 
-            int col = 0, rows = 1;
-            foreach (char c in _text)
-            {
-                float ox = PAD + col * (float)cellW;
-                if (ox + cellW > newWidth - PAD) { rows++; col = 0; }
-                col++;
-            }
-            int newHeight = rows * lineH;
+            var layout = BuildLayout(newWidth);
+            int newHeight = (layout[_text.Length].Y + 1) * lineH;
 
             if (Width != newWidth || Height != newHeight)
                 SetBounds(Left, Top, newWidth, newHeight);
             else
                 Invalidate();
+        }
+
+        // Returns (col, row) for each character in _text plus one extra entry for the
+        // after-last-char cursor. Words (non-space runs) wrap as a unit; individual
+        // characters within an overlong word hard-wrap character by character.
+        private Point[] BuildLayout(int width)
+        {
+            float cellW = CellPx;
+            float availW = width - PAD * 2;
+            var pos = new Point[_text.Length + 1];
+            int col = 0, row = 0;
+            int i = 0;
+
+            while (i < _text.Length)
+            {
+                if (_text[i] == '⠀') // braille space — word boundary
+                {
+                    if (col > 0 && (col + 1) * cellW > availW) { row++; col = 0; }
+                    pos[i] = new Point(col, row);
+                    col++;
+                    i++;
+                }
+                else
+                {
+                    int wEnd = i;
+                    while (wEnd < _text.Length && _text[wEnd] != '⠀') wEnd++;
+                    int wLen = wEnd - i;
+
+                    if (col > 0 && (col + wLen) * cellW > availW) { row++; col = 0; }
+
+                    for (int j = i; j < wEnd; j++)
+                    {
+                        if (col > 0 && (col + 1) * cellW > availW) { row++; col = 0; }
+                        pos[j] = new Point(col, row);
+                        col++;
+                    }
+                    i = wEnd;
+                }
+            }
+            pos[_text.Length] = new Point(col, row);
+            return pos;
+        }
+
+        private int ComputeHeight(int width)
+        {
+            var layout = BuildLayout(width);
+            return (layout[_text.Length].Y + 1) * LinePx;
         }
 
         private void DeleteSelection()
@@ -197,21 +238,22 @@ namespace BrailleUrdu
             var g = e.Graphics;
             g.SmoothingMode = SmoothingMode.None;
 
-            DrawSearchHighlight(g);
-            DrawBrailleSelection(g);
-            DrawBrailleDots(g);
+            var layout = BuildLayout(Width);
+            DrawSearchHighlight(g, layout);
+            DrawBrailleSelection(g, layout);
+            DrawBrailleDots(g, layout);
 
             if (Focused)
             {
-                if (_textEditMode && _caretVisible) DrawCaret(g);
+                if (_textEditMode && _caretVisible) DrawCaret(g, layout);
 
                 using (var pen = new Pen(Color.DodgerBlue, 2f))
                     g.DrawRectangle(pen, 1, 1, Width - 3, Height - 3);
 
                 foreach (var h in new[] {
-                    ResizeHandle.TopLeft,    ResizeHandle.TopCenter,    ResizeHandle.TopRight,
-                    ResizeHandle.MiddleLeft,                            ResizeHandle.MiddleRight,
-                    ResizeHandle.BottomLeft, ResizeHandle.BottomCenter, ResizeHandle.BottomRight })
+                    ResizeHandle.TopLeft,    ResizeHandle.TopRight,
+                    ResizeHandle.MiddleLeft, ResizeHandle.MiddleRight,
+                    ResizeHandle.BottomLeft, ResizeHandle.BottomRight })
                 {
                     var r = GetHandleRect(h);
                     g.FillRectangle(Brushes.DodgerBlue, r);
@@ -232,12 +274,12 @@ namespace BrailleUrdu
         }
 
         // ── Search highlight ──────────────────────────────────────────────────
-        private void DrawSearchHighlight(Graphics g)
+        private void DrawSearchHighlight(Graphics g, Point[] layout)
         {
             if (string.IsNullOrEmpty(_searchHighlight)) return;
-            int    searchLen = _searchHighlight.Length;
-            float  cellW     = CellPx;
-            float  lineH     = LinePx;
+            int   searchLen = _searchHighlight.Length;
+            float cellW     = CellPx;
+            float lineH     = LinePx;
 
             using (var brush = new SolidBrush(Color.FromArgb(180, 255, 210, 0)))
             {
@@ -247,14 +289,11 @@ namespace BrailleUrdu
                     int match = _text.IndexOf(_searchHighlight, pos, StringComparison.Ordinal);
                     if (match < 0) break;
 
-                    int col = 0, row = 0;
-                    for (int i = 0; i < _text.Length; i++)
+                    for (int i = match; i < match + searchLen; i++)
                     {
-                        float ox = PAD + col * cellW;
-                        if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
-                        if (i >= match && i < match + searchLen)
-                            g.FillRectangle(brush, ox, row * lineH, cellW, lineH);
-                        col++;
+                        float ox = PAD + layout[i].X * cellW;
+                        float oy = layout[i].Y * lineH;
+                        g.FillRectangle(brush, ox, oy, cellW, lineH);
                     }
                     pos = match + searchLen;
                 }
@@ -262,27 +301,24 @@ namespace BrailleUrdu
         }
 
         // ── Selection highlight ───────────────────────────────────────────────
-        private void DrawBrailleSelection(Graphics g)
+        private void DrawBrailleSelection(Graphics g, Point[] layout)
         {
             if (!HasSelection || !_textEditMode) return;
             int start = SelStart, end = SelEnd;
             float cellW = CellPx, lineH = LinePx;
             using (var brush = new SolidBrush(Color.FromArgb(80, 51, 153, 255)))
             {
-                int col = 0, row = 0;
-                for (int i = 0; i < _text.Length; i++)
+                for (int i = start; i < end; i++)
                 {
-                    float ox = PAD + col * cellW;
-                    if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
-                    if (i >= start && i < end)
-                        g.FillRectangle(brush, ox, row * lineH, cellW, lineH);
-                    col++;
+                    float ox = PAD + layout[i].X * cellW;
+                    float oy = layout[i].Y * lineH;
+                    g.FillRectangle(brush, ox, oy, cellW, lineH);
                 }
             }
         }
 
         // ── Dot rendering ─────────────────────────────────────────────────────
-        private void DrawBrailleDots(Graphics g)
+        private void DrawBrailleDots(Graphics g, Point[] layout)
         {
             float dotSpacePx = DocumentPage.DOT_SPACING_MM * PxPerMm;
             float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
@@ -292,18 +328,17 @@ namespace BrailleUrdu
             // inside the selection/highlight rectangle [ox, ox+cellW] x [oy, oy+lineH].
             float dotOffsetX = (cellW - dotSpacePx)       / 2f;
             float dotOffsetY = (lineH  - 2 * dotSpacePx)  / 2f;
-            int col = 0, row = 0;
 
             g.SmoothingMode = SmoothingMode.AntiAlias;
             using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
             {
-                foreach (char c in _text)
+                for (int i = 0; i < _text.Length; i++)
                 {
-                    if ((int)c < 0x2800 || (int)c > 0x28FF) { col++; continue; }
+                    char c = _text[i];
+                    if ((int)c < 0x2800 || (int)c > 0x28FF) continue;
 
-                    float ox = PAD + col * cellW;
-                    if (ox + cellW > Width - PAD) { row++; col = 0; ox = PAD; }
-                    float oy = row * lineH;
+                    float ox = PAD + layout[i].X * cellW;
+                    float oy = layout[i].Y * lineH;
 
                     int bits = (int)c - 0x2800;
                     for (int b = 0; b < 8; b++)
@@ -315,66 +350,39 @@ namespace BrailleUrdu
                         float cy = oy + dotOffsetY + drow * dotSpacePx;
                         g.FillEllipse(brush, cx - dotRad, cy - dotRad, dotRad * 2, dotRad * 2);
                     }
-                    col++;
                 }
             }
             g.SmoothingMode = SmoothingMode.None;
         }
 
         // ── Caret ─────────────────────────────────────────────────────────────
-        private void DrawCaret(Graphics g)
+        private void DrawCaret(Graphics g, Point[] layout)
         {
-            var p = CursorScreenPos();
+            var p = CursorScreenPos(layout);
             using (var pen = new Pen(Color.Black, 1.5f))
                 g.DrawLine(pen, p.X, p.Y + 1, p.X, p.Y + LinePx - 2);
         }
 
-        private PointF CursorScreenPos()
+        private PointF CursorScreenPos(Point[] layout)
         {
-            float cellW = CellPx;
-            int col = 0, row = 0;
-
-            for (int i = 0; i <= _text.Length; i++)
-            {
-                float ox = PAD + col * cellW;
-                if (ox + cellW > Width - PAD) { row++; col = 0; }
-
-                if (i == _cursorPos)
-                    return new PointF(PAD + col * cellW, row * LinePx);
-
-                if (i < _text.Length) col++;
-            }
-            return new PointF(PAD, 0f);
+            int idx = Math.Min(_cursorPos, _text.Length);
+            return new PointF(PAD + layout[idx].X * (float)CellPx, layout[idx].Y * (float)LinePx);
         }
 
         private int TextIndexAt(Point p)
         {
+            var layout = BuildLayout(Width);
             float cellW = CellPx, lineH = LinePx;
-            int col = 0, row = 0;
             int best = _text.Length;
             float bestDist = float.MaxValue;
 
             for (int i = 0; i <= _text.Length; i++)
             {
-                float ox = PAD + col * cellW;
-                bool wouldWrap = ox + cellW > Width - PAD;
-
-                // Only wrap for real characters. The end-of-text cursor must stay
-                // on the same row as the last character so it is always clickable.
-                if (wouldWrap && i < _text.Length) { row++; col = 0; }
-
-                // When the end position would overflow the row, snap its center to
-                // the right edge of the content area (Width - PAD) so the rightmost
-                // character can be selected even when the box fits the text exactly.
-                float cx = (i == _text.Length && wouldWrap)
-                           ? Width - PAD
-                           : PAD + col * cellW + cellW * 0.5f;
-                float cy = row * lineH + lineH * 0.5f;
+                float cx = PAD + layout[i].X * cellW + cellW * 0.5f;
+                float cy = layout[i].Y * lineH + lineH * 0.5f;
                 float dx = p.X - cx, dy = p.Y - cy;
                 float d2 = dx * dx + dy * dy;
                 if (d2 < bestDist) { bestDist = d2; best = i; }
-
-                if (i < _text.Length) col++;
             }
             return best;
         }
@@ -406,26 +414,15 @@ namespace BrailleUrdu
         private void SelectLineAt(int idx)
         {
             if (_text.Length == 0) return;
-            float cellW = CellPx;
+            var layout = BuildLayout(Width);
 
-            // Compute which visual row each character lands on (same layout as rendering)
-            var charRow = new int[_text.Length];
-            int col = 0, row = 0;
-            for (int i = 0; i < _text.Length; i++)
-            {
-                float ox = PAD + col * cellW;
-                if (ox + cellW > Width - PAD) { row++; col = 0; }
-                charRow[i] = row;
-                col++;
-            }
-
-            int safeIdx  = Math.Max(0, Math.Min(idx, _text.Length - 1));
-            int targetRow = charRow[safeIdx];
+            int safeIdx   = Math.Max(0, Math.Min(idx, _text.Length - 1));
+            int targetRow = layout[safeIdx].Y;
 
             int start = _text.Length, end = -1;
             for (int i = 0; i < _text.Length; i++)
             {
-                if (charRow[i] == targetRow)
+                if (layout[i].Y == targetRow)
                 {
                     if (i < start) start = i;
                     if (i > end)   end   = i;
@@ -470,9 +467,9 @@ namespace BrailleUrdu
 
         private static readonly ResizeHandle[] _activeHandles =
         {
-            ResizeHandle.TopLeft,    ResizeHandle.TopCenter,    ResizeHandle.TopRight,
-            ResizeHandle.MiddleLeft,                            ResizeHandle.MiddleRight,
-            ResizeHandle.BottomLeft, ResizeHandle.BottomCenter, ResizeHandle.BottomRight
+            ResizeHandle.TopLeft,    ResizeHandle.TopRight,
+            ResizeHandle.MiddleLeft, ResizeHandle.MiddleRight,
+            ResizeHandle.BottomLeft, ResizeHandle.BottomRight
         };
 
         private ResizeHandle HitTest(Point p)
@@ -486,8 +483,6 @@ namespace BrailleUrdu
         {
             switch (h)
             {
-                case ResizeHandle.TopCenter:
-                case ResizeHandle.BottomCenter: return Cursors.SizeNS;
                 case ResizeHandle.MiddleLeft:
                 case ResizeHandle.MiddleRight:  return Cursors.SizeWE;
                 case ResizeHandle.TopLeft:
@@ -630,39 +625,34 @@ namespace BrailleUrdu
 
             switch (_activeHandle)
             {
-                case ResizeHandle.TopCenter:
-                    nh = Math.Max(mh, _startSize.Height - dy);
-                    ny = _startLocation.Y + (_startSize.Height - nh);
-                    break;
-                case ResizeHandle.BottomCenter:
-                    nh = Math.Max(mh, _startSize.Height + dy);
-                    break;
                 case ResizeHandle.MiddleLeft:
                     nw = Math.Max(mw, _startSize.Width - dx);
                     nx = _startLocation.X + (_startSize.Width - nw);
+                    nh = ComputeHeight(nw);
                     break;
                 case ResizeHandle.MiddleRight:
                     nw = Math.Max(mw, _startSize.Width + dx);
+                    nh = ComputeHeight(nw);
                     break;
                 case ResizeHandle.TopLeft:
                     nw = Math.Max(mw, _startSize.Width - dx);
                     nx = _startLocation.X + (_startSize.Width - nw);
-                    nh = Math.Max(mh, _startSize.Height - dy);
+                    nh = ComputeHeight(nw);
                     ny = _startLocation.Y + (_startSize.Height - nh);
                     break;
                 case ResizeHandle.TopRight:
                     nw = Math.Max(mw, _startSize.Width + dx);
-                    nh = Math.Max(mh, _startSize.Height - dy);
+                    nh = ComputeHeight(nw);
                     ny = _startLocation.Y + (_startSize.Height - nh);
                     break;
                 case ResizeHandle.BottomLeft:
                     nw = Math.Max(mw, _startSize.Width - dx);
                     nx = _startLocation.X + (_startSize.Width - nw);
-                    nh = Math.Max(mh, _startSize.Height + dy);
+                    nh = ComputeHeight(nw);
                     break;
                 case ResizeHandle.BottomRight:
                     nw = Math.Max(mw, _startSize.Width + dx);
-                    nh = Math.Max(mh, _startSize.Height + dy);
+                    nh = ComputeHeight(nw);
                     break;
             }
 

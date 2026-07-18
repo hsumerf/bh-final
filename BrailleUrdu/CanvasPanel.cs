@@ -1087,13 +1087,15 @@ namespace BrailleUrdu
             var rubber = MakeClientRect(_rubberStart, e.Location);
             if (rubber.Width > 4 || rubber.Height > 4)
             {
-                var content = ClientToContent(rubber);
+                // ctrl.Bounds is in client coords (WinForms AutoScroll physically repositions
+                // child controls when scrolled), so compare against the rubber rect directly —
+                // no ClientToContent conversion needed here.
                 foreach (Control ctrl in Controls)
                 {
                     if (!ctrl.Visible || !ctrl.Enabled) continue;
                     if (!(ctrl is BrailleTextBox || ctrl is PrintTextBox || ctrl is PageNumberBox
                           || ctrl is LineBox || ctrl is TableBox || ctrl is ImageBox || ctrl is TactileBox)) continue;
-                    if (!content.IntersectsWith(ctrl.Bounds)) continue;
+                    if (!rubber.IntersectsWith(ctrl.Bounds)) continue;
                     SetSelected(ctrl, true);
                     if (!_selectedControls.Contains(ctrl)) _selectedControls.Add(ctrl);
                 }
