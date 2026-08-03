@@ -110,6 +110,15 @@
     <Compile Include="TextFindReplaceDialog.cs">
       <SubType>Form</SubType>
     </Compile>
+    <Compile Include="Translator\LanguageSelectorDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Translator\DictionaryDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Translator\TranslatorDialog.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="ImageBox.cs">
       <SubType>UserControl</SubType>
     </Compile>

@@ -41,6 +41,8 @@ namespace BrailleUrdu
             this.navigation.InsertPageNumberClicked  += (s, e) => this.OnInsertPageNumber();
             this.navigation.TextFindClicked          += (s, e) => this.OnTextFind();
             this.navigation.TextReplaceClicked       += (s, e) => this.OnTextReplace();
+            this.navigation.DictionaryClicked        += (s, e) => this.OnDictionary();
+            this.navigation.TranslatorClicked        += (s, e) => this.OnTranslator();
             this.navigation.CutClicked           += (s, e) => this.canvasPanel.EditCut();
             this.navigation.CopyClicked          += (s, e) => this.canvasPanel.EditCopy();
             this.navigation.PasteClicked         += (s, e) => this.canvasPanel.EditPaste();

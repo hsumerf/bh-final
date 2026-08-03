@@ -283,6 +283,28 @@ namespace BrailleUrdu
         internal void OnBrailleFind()    => new BrailleFindReplaceDialog(canvasPanel, false).ShowDialog(this);
         internal void OnBrailleReplace() => new BrailleFindReplaceDialog(canvasPanel, true).ShowDialog(this);
 
+        // ── Translator ────────────────────────────────────────────────────────
+
+        internal void OnDictionary()
+        {
+            using (var sel = new LanguageSelectorDialog())
+            {
+                if (sel.ShowDialog(this) != System.Windows.Forms.DialogResult.OK) return;
+                using (var dict = new DictionaryDialog(sel.SelectedLangCode))
+                    dict.ShowDialog(this);
+            }
+        }
+
+        internal void OnTranslator()
+        {
+            using (var sel = new LanguageSelectorDialog())
+            {
+                if (sel.ShowDialog(this) != System.Windows.Forms.DialogResult.OK) return;
+                using (var dlg = new TranslatorDialog(sel.SelectedLangCode))
+                    dlg.ShowDialog(this);
+            }
+        }
+
         // ── Export ────────────────────────────────────────────────────────────
 
         internal void OnExport()

@@ -25,6 +25,8 @@ namespace BrailleUrdu
         public event EventHandler InsertPageNumberClicked;
         public event EventHandler TextFindClicked;
         public event EventHandler TextReplaceClicked;
+        public event EventHandler DictionaryClicked;
+        public event EventHandler TranslatorClicked;
 
         private ToolStripMenuItem _stackModeItem;
         public bool IsStackMode => _stackModeItem?.Checked ?? false;
@@ -37,16 +39,17 @@ namespace BrailleUrdu
         private void BuildMenu()
         {
             // ── Top-level items ──────────────────────────────────────────────
-            var file    = new ToolStripMenuItem("&File");
-            var edit    = new ToolStripMenuItem("&Edit");
-            var layout  = new ToolStripMenuItem("&Layout");
-            var text    = new ToolStripMenuItem("&Text");
-            var braille = new ToolStripMenuItem("&Braille");
-            var view    = new ToolStripMenuItem("&View");
-            var help    = new ToolStripMenuItem("&Help");
+            var file       = new ToolStripMenuItem("&File");
+            var edit       = new ToolStripMenuItem("&Edit");
+            var layout     = new ToolStripMenuItem("&Layout");
+            var text       = new ToolStripMenuItem("&Text");
+            var braille    = new ToolStripMenuItem("&Braille");
+            var translator = new ToolStripMenuItem("&Translator");
+            var view       = new ToolStripMenuItem("&View");
+            var help       = new ToolStripMenuItem("&Help");
 
             this.Items.AddRange(new ToolStripItem[] {
-                file, edit, layout, text, braille, view, help
+                file, edit, layout, text, braille, translator, view, help
             });
 
             // ── File ─────────────────────────────────────────────────────────
@@ -118,6 +121,13 @@ namespace BrailleUrdu
             braille.DropDownItems.AddRange(new ToolStripItem[] {
                 BrailleFindItem(),
                 BrailleReplaceItem()
+            });
+
+            // ── Translator ────────────────────────────────────────────────────
+            translator.DropDownItems.AddRange(new ToolStripItem[] {
+                DictionaryItem(),
+                new ToolStripSeparator(),
+                TranslatorItem()
             });
 
             // ── View ─────────────────────────────────────────────────────────
@@ -254,6 +264,20 @@ namespace BrailleUrdu
         {
             var item = new ToolStripMenuItem("Exit");
             item.Click += (s, e) => Application.Exit();
+            return item;
+        }
+
+        private ToolStripMenuItem DictionaryItem()
+        {
+            var item = new ToolStripMenuItem("Dictionary...");
+            item.Click += (s, e) => DictionaryClicked?.Invoke(this, EventArgs.Empty);
+            return item;
+        }
+
+        private ToolStripMenuItem TranslatorItem()
+        {
+            var item = new ToolStripMenuItem("Translator...");
+            item.Click += (s, e) => TranslatorClicked?.Invoke(this, EventArgs.Empty);
             return item;
         }
     }

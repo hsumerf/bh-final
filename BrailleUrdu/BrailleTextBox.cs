@@ -692,9 +692,13 @@ namespace BrailleUrdu
 
             string braille = BrailleMapper.ToBraille(e.KeyChar);
             if (!string.IsNullOrEmpty(braille))
+            {
+                if (e.KeyChar >= '0' && e.KeyChar <= '9')
+                    braille = "⠼" + braille;
                 ApplyTextChange(
                     _text.Substring(0, _cursorPos) + braille + _text.Substring(_cursorPos),
                     _cursorPos + braille.Length);
+            }
             e.Handled = true;
         }
 
