@@ -20,6 +20,10 @@ namespace BrailleUrdu
         public event EventHandler PasteClicked;
         public event EventHandler DeleteClicked;
         public event EventHandler DuplicateClicked;
+        public event EventHandler BringFrontClicked;
+        public event EventHandler BringForwardClicked;
+        public event EventHandler SendBackClicked;
+        public event EventHandler SendBackwardClicked;
         public event EventHandler BrailleFindClicked;
         public event EventHandler BrailleReplaceClicked;
         public event EventHandler InsertPageNumberClicked;
@@ -86,11 +90,11 @@ namespace BrailleUrdu
                 new ToolStripSeparator(),
                 EditItem("Duplicate", Keys.Control | Keys.D,              () => DuplicateClicked),
                 new ToolStripSeparator(),
-                Item("Bring Front",   Keys.Control | Keys.Shift | Keys.OemCloseBrackets),
-                Item("Bring Forward", Keys.Control | Keys.OemCloseBrackets),
+                EditItem("Bring Front",   Keys.Control | Keys.Shift | Keys.OemCloseBrackets, () => BringFrontClicked),
+                EditItem("Bring Forward", Keys.Control | Keys.OemCloseBrackets,              () => BringForwardClicked),
                 new ToolStripSeparator(),
-                Item("Send Back",     Keys.Control | Keys.Shift | Keys.OemOpenBrackets),
-                Item("Send Backward", Keys.Control | Keys.OemOpenBrackets),
+                EditItem("Send Back",     Keys.Control | Keys.Shift | Keys.OemOpenBrackets,  () => SendBackClicked),
+                EditItem("Send Backward", Keys.Control | Keys.OemOpenBrackets,               () => SendBackwardClicked),
                 new ToolStripSeparator(),
                 Item("Spacer..."),
                 new ToolStripSeparator(),

@@ -107,7 +107,6 @@ namespace BrailleUrdu
             _resizeHandle = HitHandle(e.Location);
             _resizing     = _resizeHandle != 0;
             _dragging     = !_resizing;
-            BringToFront();
             Focus();
             Invalidate();
 

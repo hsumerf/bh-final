@@ -359,12 +359,8 @@ namespace BrailleUrdu
             return fmt;
         }
 
-        // Edge padding: 0 on the side the text is aligned to, PAD otherwise.
-        // RTL swaps Near/Far so Near still means "the natural reading start edge".
-        private float TextLeft  => HandlePad + ((!_isRtl && _hAlign == StringAlignment.Near) ||
-                                               ( _isRtl && _hAlign == StringAlignment.Far)  ? 0f : PAD);
-        private float TextRight => HandlePad + ((!_isRtl && _hAlign == StringAlignment.Far)  ||
-                                               ( _isRtl && _hAlign == StringAlignment.Near) ? 0f : PAD);
+        private float TextLeft  => HandlePad + PAD;
+        private float TextRight => HandlePad + PAD;
         private float TextTop   => (float)HandlePad;
         private float TextBot   => (float)HandlePad;
 
@@ -661,10 +657,20 @@ namespace BrailleUrdu
                 float half = _borderWidth / 2f;
                 float l = HandlePad, r = Width  - HandlePad;
                 float t = HandlePad, b = Height - HandlePad;
-                if (_borderTop)    g.DrawLine(pen, l, t + half,          r, t + half);
-                if (_borderBottom) g.DrawLine(pen, l, b - half,          r, b - half);
-                if (_borderLeft)   g.DrawLine(pen, l + half, t, l + half, b);
-                if (_borderRight)  g.DrawLine(pen, r - half, t, r - half, b);
+
+                // Vertical lines stop at the centerline of adjacent horizontal borders.
+                float vy0 = _borderTop    ? t + half : t;
+                float vy1 = _borderBottom ? b - half : b;
+
+                // GDI+ renders line endpoints inclusively. The horizontal lines start at l
+                // (aligning with the left border's pixel) but must end at r - borderWidth,
+                // not r, so they don't extend one pixel past the right border.
+                float hx1 = _borderRight ? r - _borderWidth : r;
+
+                if (_borderTop)    g.DrawLine(pen, l,        t + half, hx1,      t + half);
+                if (_borderBottom) g.DrawLine(pen, l,        b - half, hx1,      b - half);
+                if (_borderLeft)   g.DrawLine(pen, l + half, vy0,      l + half, vy1);
+                if (_borderRight)  g.DrawLine(pen, r - half, vy0,      r - half, vy1);
             }
         }
 

@@ -61,6 +61,7 @@ namespace BrailleUrdu
         private readonly List<string> _undoStack = new List<string>();
         private string             _clipboard;
         private const int          MAX_UNDO = 50;
+        private ContextMenuStrip   _contextMenu;
 
         public CanvasPanel()
         {
@@ -77,6 +78,8 @@ namespace BrailleUrdu
             _overlay = new MarginGuideOverlay(this);
             Controls.Add(_overlay);
             ControlAdded += (s, ev) => { if (ev.Control != _overlay) _overlay?.BringToFront(); };
+
+            BuildContextMenu();
         }
 
         // ── Coordinate helpers ────────────────────────────────────────────────
@@ -331,14 +334,22 @@ namespace BrailleUrdu
             if (!_pageControls.ContainsKey(page))
                 _pageControls[page] = new List<Control>();
             _pageControls[page].Add(ctrl);
+            ctrl.ContextMenuStrip = _contextMenu;
 
             ctrl.GotFocus += (s, e) =>
             {
+                bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
                 if (!_selectedControls.Contains(ctrl))
                 {
-                    ClearSelection();
+                    if (!shift) ClearSelection();
                     if (!ctrl.IsDisposed) { _selectedControls.Add(ctrl); SetSelected(ctrl, true); }
                     SelectionChanged?.Invoke(ctrl);
+                }
+                else if (shift)
+                {
+                    _selectedControls.Remove(ctrl);
+                    SetSelected(ctrl, false);
+                    SelectionChanged?.Invoke(_selectedControls.Count > 0 ? _selectedControls[_selectedControls.Count - 1] : null);
                 }
             };
             ctrl.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
@@ -661,13 +672,21 @@ namespace BrailleUrdu
                     _pageControls[pg] = new List<Control>();
                 _pageControls[pg].Add(pnb);
 
+                pnb.ContextMenuStrip = _contextMenu;
                 pnb.GotFocus += (s, e) =>
                 {
+                    bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
                     if (!_selectedControls.Contains(pnb))
                     {
-                        ClearSelection();
+                        if (!shift) ClearSelection();
                         if (!pnb.IsDisposed) { _selectedControls.Add(pnb); SetSelected(pnb, true); }
                         SelectionChanged?.Invoke(pnb);
+                    }
+                    else if (shift)
+                    {
+                        _selectedControls.Remove(pnb);
+                        SetSelected(pnb, false);
+                        SelectionChanged?.Invoke(_selectedControls.Count > 0 ? _selectedControls[_selectedControls.Count - 1] : null);
                     }
                 };
                 pnb.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);
@@ -1058,6 +1077,88 @@ namespace BrailleUrdu
             if (last != null) last.Focus();
         }
 
+        public void EditBringToFront()
+        {
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            PushUndo();
+            foreach (var ctrl in targets) ctrl.BringToFront();
+            _overlay?.BringToFront();
+        }
+
+        public void EditBringForward()
+        {
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            PushUndo();
+            // Sort ascending by index so moving toward front doesn't cause conflicts
+            targets.Sort((a, b) => Controls.GetChildIndex(a) - Controls.GetChildIndex(b));
+            foreach (var ctrl in targets)
+            {
+                int idx = Controls.GetChildIndex(ctrl);
+                if (idx > 0) Controls.SetChildIndex(ctrl, idx - 1);
+            }
+            _overlay?.BringToFront();
+        }
+
+        public void EditSendToBack()
+        {
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            PushUndo();
+            // Sort descending so sending to back preserves relative order
+            targets.Sort((a, b) => Controls.GetChildIndex(b) - Controls.GetChildIndex(a));
+            foreach (var ctrl in targets) ctrl.SendToBack();
+            _overlay?.BringToFront();
+        }
+
+        public void EditSendBackward()
+        {
+            var targets = SelectedTargets();
+            if (targets.Count == 0) return;
+            PushUndo();
+            // Sort descending by index so moving toward back doesn't cause conflicts
+            targets.Sort((a, b) => Controls.GetChildIndex(b) - Controls.GetChildIndex(a));
+            foreach (var ctrl in targets)
+            {
+                int idx    = Controls.GetChildIndex(ctrl);
+                int maxIdx = Controls.Count - 1;
+                if (idx < maxIdx) Controls.SetChildIndex(ctrl, idx + 1);
+            }
+            _overlay?.BringToFront();
+        }
+
+        private void BuildContextMenu()
+        {
+            _contextMenu = new ContextMenuStrip();
+            _contextMenu.Items.Add("Undo",          null, (s, e) => EditUndo());
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add("Cut",           null, (s, e) => EditCut());
+            _contextMenu.Items.Add("Copy",          null, (s, e) => EditCopy());
+            _contextMenu.Items.Add("Paste",         null, (s, e) => EditPaste());
+            _contextMenu.Items.Add("Delete",        null, (s, e) => EditDelete());
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add("Duplicate",     null, (s, e) => EditDuplicate());
+            _contextMenu.Items.Add(new ToolStripSeparator());
+            _contextMenu.Items.Add("Bring to Front",null, (s, e) => EditBringToFront());
+            _contextMenu.Items.Add("Bring Forward", null, (s, e) => EditBringForward());
+            _contextMenu.Items.Add("Send Backward", null, (s, e) => EditSendBackward());
+            _contextMenu.Items.Add("Send to Back",  null, (s, e) => EditSendToBack());
+
+            // Ensure right-clicked element is selected before any action runs
+            _contextMenu.Opening += (s, e) =>
+            {
+                var source = _contextMenu.SourceControl;
+                if (source != null && !_selectedControls.Contains(source))
+                {
+                    if ((Control.ModifierKeys & Keys.Shift) == 0) ClearSelection();
+                    _selectedControls.Add(source);
+                    SetSelected(source, true);
+                    SelectionChanged?.Invoke(source);
+                }
+            };
+        }
+
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
@@ -1128,14 +1229,22 @@ namespace BrailleUrdu
             if (!_pageControls.ContainsKey(page))
                 _pageControls[page] = new List<System.Windows.Forms.Control>();
             _pageControls[page].Add(ctrl);
+            ctrl.ContextMenuStrip = _contextMenu;
 
             ctrl.GotFocus += (s, e) =>
             {
+                bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
                 if (!_selectedControls.Contains(ctrl))
                 {
-                    ClearSelection();
+                    if (!shift) ClearSelection();
                     if (!ctrl.IsDisposed) { _selectedControls.Add(ctrl); SetSelected(ctrl, true); }
                     SelectionChanged?.Invoke(ctrl);
+                }
+                else if (shift)
+                {
+                    _selectedControls.Remove(ctrl);
+                    SetSelected(ctrl, false);
+                    SelectionChanged?.Invoke(_selectedControls.Count > 0 ? _selectedControls[_selectedControls.Count - 1] : null);
                 }
             };
             ctrl.LocationChanged += (s, e) => DocumentChanged?.Invoke(this, EventArgs.Empty);

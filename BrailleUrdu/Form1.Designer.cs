@@ -48,6 +48,10 @@ namespace BrailleUrdu
             this.navigation.PasteClicked         += (s, e) => this.canvasPanel.EditPaste();
             this.navigation.DeleteClicked        += (s, e) => this.canvasPanel.EditDelete();
             this.navigation.DuplicateClicked     += (s, e) => this.canvasPanel.EditDuplicate();
+            this.navigation.BringFrontClicked    += (s, e) => this.canvasPanel.EditBringToFront();
+            this.navigation.BringForwardClicked  += (s, e) => this.canvasPanel.EditBringForward();
+            this.navigation.SendBackClicked      += (s, e) => this.canvasPanel.EditSendToBack();
+            this.navigation.SendBackwardClicked  += (s, e) => this.canvasPanel.EditSendBackward();
             this.navigation.StackModeChanged     += (s, e) => this.canvasPanel.StackMode = this.navigation.IsStackMode;
             this.toolbarPanel.TextToolClicked    += (s, e)    => this.canvasPanel.ActivateTextTool();
             this.toolbarPanel.LineToolClicked    += (s, e)    => this.canvasPanel.ActivateLineTool();
