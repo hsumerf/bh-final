@@ -522,6 +522,7 @@ namespace BrailleUrdu
                     (int)(origin.X + MmToPx(page.MarginLeft)),
                     (int)(origin.Y + MmToPx(page.MarginTop)));
             var box = new PrintTextBox { Location = loc };
+            box.Width = box.Width * 5 / 4;
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();

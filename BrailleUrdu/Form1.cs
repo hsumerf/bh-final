@@ -290,8 +290,9 @@ namespace BrailleUrdu
             using (var sel = new LanguageSelectorDialog())
             {
                 if (sel.ShowDialog(this) != System.Windows.Forms.DialogResult.OK) return;
-                using (var dict = new DictionaryDialog(sel.SelectedLangCode))
-                    dict.ShowDialog(this);
+                var dict = new DictionaryDialog(sel.SelectedLangCode);
+                dict.FormClosed += (s, e) => dict.Dispose();
+                dict.Show(this);
             }
         }
 
@@ -300,8 +301,9 @@ namespace BrailleUrdu
             using (var sel = new LanguageSelectorDialog())
             {
                 if (sel.ShowDialog(this) != System.Windows.Forms.DialogResult.OK) return;
-                using (var dlg = new TranslatorDialog(sel.SelectedLangCode))
-                    dlg.ShowDialog(this);
+                var dlg = new TranslatorDialog(sel.SelectedLangCode);
+                dlg.FormClosed += (s, e) => dlg.Dispose();
+                dlg.Show(this);
             }
         }
 

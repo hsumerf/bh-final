@@ -26,8 +26,8 @@ namespace BrailleUrdu
             FormBorderStyle = FormBorderStyle.Sizable;
             StartPosition   = FormStartPosition.CenterParent;
             MaximizeBox     = true;
-            MinimizeBox     = false;
-            ShowInTaskbar   = false;
+            MinimizeBox     = true;
+            ShowInTaskbar   = true;
             Font            = new Font("Segoe UI", 9f);
 
             var lblText = new Label

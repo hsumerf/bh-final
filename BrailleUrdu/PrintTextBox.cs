@@ -292,6 +292,7 @@ namespace BrailleUrdu
             _cursorPos       = index < 0 ? _text.Length : Math.Min(index, _text.Length);
             _selectionAnchor = _cursorPos;
             _caretVisible    = true;
+            Cursor           = Cursors.IBeam;
             _caretTimer.Start();
             Invalidate();
         }
@@ -305,6 +306,7 @@ namespace BrailleUrdu
             _selectionAnchor = _cursorPos;
             _caretTimer.Stop();
             _caretVisible    = false;
+            Cursor           = Cursors.Default;
             Invalidate();
         }
 
@@ -472,7 +474,17 @@ namespace BrailleUrdu
 
         private void DrawText(Graphics g, Font font)
         {
-            if (_text.Length == 0) return;
+            if (_text.Length == 0)
+            {
+                using (var brush = new SolidBrush(Color.FromArgb(160, 160, 160)))
+                {
+                    var fmt = new StringFormat(StringFormat.GenericTypographic)
+                        { FormatFlags = StringFormatFlags.NoWrap };
+                    g.DrawString("TextField", font, brush,
+                        new PointF(TextLeft, TextTop), fmt);
+                }
+                return;
+            }
             EnsureCharStyle();
 
             float    lh     = font.GetHeight(g);
@@ -1223,7 +1235,8 @@ namespace BrailleUrdu
 
             if (!_dragging && !_resizing)
             {
-                Cursor = CursorFor(HitTest(e.Location));
+                var h = HitTest(e.Location);
+                Cursor = (_textEditMode && h == ResizeHandle.None) ? Cursors.IBeam : CursorFor(h);
                 return;
             }
 

@@ -38,7 +38,7 @@ namespace BrailleUrdu
         private Panel    _braillePanel;
         private Panel    _linePanel;
         private Panel    _tablePanel;
-        private TextBox  _brailleTransBox;
+        private Button   _btnTrim;
         private ComboBox _cbLineDir;
         private Button   _btnLineColor;
         private TextBox  _tbLineWidth;
@@ -338,22 +338,24 @@ namespace BrailleUrdu
 
         private void BuildBraillePanel()
         {
-            int y = 12;
-            _braillePanel.Controls.Add(Rule(y)); y += 24;
-            _braillePanel.Controls.Add(MkLabel("Translation", new Point(PAD_L, y), true)); y += 32;
-
-            _brailleTransBox = new TextBox
+            _btnTrim = new Button
             {
-                Location    = new Point(PAD_L, y),
-                Size        = new Size(INNER_W, 88),   // ~5 lines tall
-                Multiline   = true,
-                ScrollBars  = ScrollBars.Vertical,
-                Font        = new Font("Segoe UI", 9.5f),
-                BackColor   = INPUT_BG,
-                BorderStyle = BorderStyle.FixedSingle
+                Text      = "Trim extra text",
+                Location  = new Point(PAD_L, 12),
+                Size      = new Size(INNER_W, 24),
+                FlatStyle = FlatStyle.Flat,
+                Font      = new Font("Segoe UI", 8.5f),
+                Cursor    = Cursors.Hand,
+                Visible   = false,
+                BackColor = Color.FromArgb(240, 240, 240)
             };
-            _brailleTransBox.TextChanged += OnTranslationChanged;
-            _braillePanel.Controls.Add(_brailleTransBox);
+            _btnTrim.FlatAppearance.BorderColor = LINE_COLOR;
+            _btnTrim.Click += (s, e) =>
+            {
+                if (_brailleTarget != null && !_brailleTarget.IsDisposed)
+                    _brailleTarget.Trim();
+            };
+            _braillePanel.Controls.Add(_btnTrim);
         }
 
         private void BuildLinePanel()
@@ -506,12 +508,24 @@ namespace BrailleUrdu
 
             RefreshFields();
             RefreshStyle();
-            RefreshTranslation();
+            RefreshTrimButton();
             RefreshLine();
             RefreshTable();
         }
 
-        private void OnTargetTransformed(object sender, EventArgs e) => RefreshFields();
+        private void OnTargetTransformed(object sender, EventArgs e)
+        {
+            RefreshFields();
+            RefreshTrimButton();
+        }
+
+        private void RefreshTrimButton()
+        {
+            if (_btnTrim == null) return;
+            _btnTrim.Visible = _brailleTarget != null
+                && !_brailleTarget.IsDisposed
+                && _brailleTarget.HasOverflow;
+        }
 
         private void RefreshFields()
         {
@@ -648,41 +662,11 @@ namespace BrailleUrdu
             }
         }
 
-        // ── Braille ↔ Translation sync ────────────────────────────────────────
-
-        private void RefreshTranslation()
-        {
-            if (_brailleTarget == null || _brailleTransBox == null) return;
-            _updating = true;
-            try   { _brailleTransBox.Text = BrailleMapper.FromBraille(_brailleTarget.BrailleText); }
-            finally { _updating = false; }
-        }
-
-        // BrailleTextBox changed → update translation box
+        // BrailleTextBox changed → refresh trim button visibility
         private void OnBrailleTextChanged(object sender, EventArgs e)
         {
             if (_updating) return;
-            RefreshTranslation();
-        }
-
-        // Translation box edited → convert to braille and push to BrailleTextBox
-        private void OnTranslationChanged(object sender, EventArgs e)
-        {
-            if (_updating || _brailleTarget == null || _brailleTarget.IsDisposed) return;
-            _updating = true;
-            try
-            {
-                var sb = new System.Text.StringBuilder();
-                foreach (char c in _brailleTransBox.Text)
-                {
-                    if (c == '\r') continue;
-                    if (c == '\n') { sb.Append('\n'); continue; }
-                    string b = BrailleMapper.ToBraille(c);
-                    sb.Append(b.Length > 0 ? b : c.ToString());
-                }
-                _brailleTarget.BrailleText = sb.ToString();
-            }
-            finally { _updating = false; }
+            RefreshTrimButton();
         }
 
         // ── Line ─────────────────────────────────────────────────────────────

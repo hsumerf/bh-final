@@ -59,6 +59,7 @@ namespace BrailleUrdu
         private bool           _caretVisible = false;
 
         // ── Drag / resize state ───────────────────────────────────────────────
+        private int          _constrainedHeight = 0; // 0 = unconstrained; >0 = max visible height in px
         private bool         _dragging;
         private bool         _resizing;
         private Point        _mouseDownScreen;
@@ -103,6 +104,7 @@ namespace BrailleUrdu
             _cursorPos       = cursorIndex < 0 ? _text.Length : cursorIndex;
             _selectionAnchor = _cursorPos;
             _caretVisible    = true;
+            Cursor           = Cursors.IBeam;
             _caretTimer.Start();
             Invalidate();
         }
@@ -113,6 +115,7 @@ namespace BrailleUrdu
             _selectionAnchor = _cursorPos;
             _caretTimer.Stop();
             _caretVisible    = false;
+            Cursor           = Cursors.Default;
             Invalidate();
         }
 
@@ -148,7 +151,10 @@ namespace BrailleUrdu
             int newWidth    = Math.Max(MinimumSize.Width, Math.Min(singleLineW, maxWidth));
 
             var layout = BuildLayout(newWidth);
-            int newHeight = (layout[_text.Length].Y + 1) * lineH;
+            int naturalHeight = (layout[_text.Length].Y + 1) * lineH;
+            int newHeight = _constrainedHeight > 0 && _constrainedHeight < naturalHeight
+                ? _constrainedHeight
+                : naturalHeight;
 
             if (Width != newWidth || Height != newHeight)
                 SetBounds(Left, Top, newWidth, newHeight);
@@ -203,6 +209,28 @@ namespace BrailleUrdu
             return (layout[_text.Length].Y + 1) * LinePx;
         }
 
+        public bool HasOverflow => _constrainedHeight > 0 && ComputeHeight(Width) > _constrainedHeight;
+
+        public void Trim()
+        {
+            if (!HasOverflow) return;
+            var layout = BuildLayout(Width);
+            int visibleRows = _constrainedHeight / LinePx;
+            int splitIdx = _text.Length;
+            for (int i = 0; i < _text.Length; i++)
+            {
+                if (layout[i].Y >= visibleRows) { splitIdx = i; break; }
+            }
+            if (splitIdx >= _text.Length) return;
+            string overflow = _text.Substring(splitIdx);
+            if (overflow.Length > 0) Clipboard.SetText(overflow);
+            _text = _text.Substring(0, splitIdx);
+            _cursorPos       = Math.Min(_cursorPos, _text.Length);
+            _selectionAnchor = _cursorPos;
+            BrailleTextChanged?.Invoke(this, EventArgs.Empty);
+            FitSize();
+        }
+
         private void DeleteSelection()
         {
             int s = SelStart, end = SelEnd;
@@ -243,6 +271,17 @@ namespace BrailleUrdu
             DrawBrailleSelection(g, layout);
             DrawBrailleDots(g, layout);
 
+            // Overflow indicator: red stripe at bottom edge when content is constrained
+            if (_constrainedHeight > 0)
+            {
+                int naturalH = (layout[_text.Length].Y + 1) * LinePx;
+                if (naturalH > _constrainedHeight)
+                {
+                    using (var pen = new Pen(Color.FromArgb(220, 60, 60), 2f))
+                        g.DrawLine(pen, 0, Height - 2, Width, Height - 2);
+                }
+            }
+
             if (Focused)
             {
                 if (_textEditMode && _caretVisible) DrawCaret(g, layout);
@@ -260,6 +299,12 @@ namespace BrailleUrdu
                     using (var pen = new Pen(Color.White, 1f))
                         g.DrawRectangle(pen, r);
                 }
+
+                // BottomCenter handle — same style as the other resize handles
+                var bcr = GetHandleRect(ResizeHandle.BottomCenter);
+                g.FillRectangle(Brushes.DodgerBlue, bcr);
+                using (var pen = new Pen(Color.White, 1f))
+                    g.DrawRectangle(pen, bcr);
             }
             else if (IsSelected)
             {
@@ -469,7 +514,7 @@ namespace BrailleUrdu
         {
             ResizeHandle.TopLeft,    ResizeHandle.TopRight,
             ResizeHandle.MiddleLeft, ResizeHandle.MiddleRight,
-            ResizeHandle.BottomLeft, ResizeHandle.BottomRight
+            ResizeHandle.BottomLeft, ResizeHandle.BottomCenter, ResizeHandle.BottomRight
         };
 
         private ResizeHandle HitTest(Point p)
@@ -489,6 +534,8 @@ namespace BrailleUrdu
                 case ResizeHandle.BottomRight:  return Cursors.SizeNWSE;
                 case ResizeHandle.TopRight:
                 case ResizeHandle.BottomLeft:   return Cursors.SizeNESW;
+                case ResizeHandle.TopCenter:
+                case ResizeHandle.BottomCenter: return Cursors.SizeNS;
                 default:                        return Cursors.SizeAll;
             }
         }
@@ -589,7 +636,8 @@ namespace BrailleUrdu
 
             if (!_dragging && !_resizing)
             {
-                Cursor = CursorFor(HitTest(e.Location));
+                var h = HitTest(e.Location);
+                Cursor = (_textEditMode && h == ResizeHandle.None) ? Cursors.IBeam : CursorFor(h);
                 return;
             }
 
@@ -653,6 +701,13 @@ namespace BrailleUrdu
                 case ResizeHandle.BottomRight:
                     nw = Math.Max(mw, _startSize.Width + dx);
                     nh = ComputeHeight(nw);
+                    break;
+                case ResizeHandle.BottomCenter:
+                    // Vertical-only drag: constrains visible height for trim workflow.
+                    nh = Math.Max(mh, _startSize.Height + dy);
+                    int naturalH = ComputeHeight(nw);
+                    if (nh >= naturalH) { nh = naturalH; _constrainedHeight = 0; }
+                    else                { _constrainedHeight = nh; }
                     break;
             }
 

@@ -34,7 +34,7 @@ namespace BrailleUrdu
             var btnLine    = MakeButton("",  "Line Tool");
             var btnTable   = MakeButton("",  "Table Tool");
             var btnImage   = MakeButton("",  "Image Tool");
-            var btnBraille = MakeButton("B", "Braille Tool");
+            var btnBraille = MakeButton("",  "Braille Tool");
             var btnTactile = MakeButton("",  "Tactile Graphic Tool");
 
             btnText.Click    += (s, e) => TextToolClicked?.Invoke(this, EventArgs.Empty);
@@ -86,8 +86,8 @@ namespace BrailleUrdu
                 g.FillPolygon(new System.Drawing.SolidBrush(Color.FromArgb(70, 130, 70)), pts);
             };
 
-            // 4×4 dot-grid icon on the tactile button
-            btnTactile.Paint += (s, e) =>
+            // 4×4 dot-grid icon on the braille button (formerly on tactile)
+            btnBraille.Paint += (s, e) =>
             {
                 var g = e.Graphics;
                 g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
@@ -104,6 +104,45 @@ namespace BrailleUrdu
                 }
             };
 
+            // Pencil icon on the tactile button
+            btnTactile.Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                using (var body   = new System.Drawing.SolidBrush(Color.FromArgb(100, 100, 100)))
+                using (var wood   = new System.Drawing.SolidBrush(Color.FromArgb(165, 165, 165)))
+                using (var eraser = new System.Drawing.SolidBrush(Color.FromArgb(140, 140, 140)))
+                using (var dark   = new System.Drawing.SolidBrush(Color.FromArgb(50,  50,  50)))
+                using (var ol     = new Pen(Color.FromArgb(55, 55, 55), 1f))
+                {
+                    // Main body
+                    var bodyPts = new PointF[] {
+                        new PointF(13, 25), new PointF(16, 28),
+                        new PointF(29, 15), new PointF(26, 12)
+                    };
+                    g.FillPolygon(body, bodyPts);
+                    g.DrawPolygon(ol, bodyPts);
+                    // Wooden tip cone
+                    var woodPts = new PointF[] {
+                        new PointF(13, 25), new PointF(16, 28), new PointF(10, 31)
+                    };
+                    g.FillPolygon(wood, woodPts);
+                    g.DrawPolygon(ol, woodPts);
+                    // Graphite tip dot
+                    g.FillEllipse(dark, 8.5f, 29.5f, 2.5f, 2.5f);
+                    // Eraser cap
+                    var eraserPts = new PointF[] {
+                        new PointF(26, 12), new PointF(29, 15),
+                        new PointF(31, 13), new PointF(28, 10)
+                    };
+                    g.FillPolygon(eraser, eraserPts);
+                    g.DrawPolygon(ol, eraserPts);
+                    // Cap band
+                    using (var band = new Pen(Color.FromArgb(70, 70, 70), 1.5f))
+                        g.DrawLine(band, 27f, 11f, 30f, 14f);
+                }
+            };
+
             // 6 buttons × 40px + 5 gaps × 8px = 280
             var group = new Panel
             {
@@ -114,8 +153,8 @@ namespace BrailleUrdu
 
             btnText.Location    = new Point(0,   0);
             btnLine.Location    = new Point(48,  0);
-            btnTable.Location   = new Point(96,  0);
-            btnImage.Location   = new Point(144, 0);
+            btnImage.Location   = new Point(96,  0);
+            btnTable.Location   = new Point(144, 0);
             btnBraille.Location = new Point(192, 0);
             btnTactile.Location = new Point(240, 0);
             group.Controls.Add(btnText);
