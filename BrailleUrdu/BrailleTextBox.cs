@@ -58,6 +58,21 @@ namespace BrailleUrdu
         private readonly Timer _caretTimer   = new Timer { Interval = 530 };
         private bool           _caretVisible = false;
 
+        // ── Layout cache ─────────────────────────────────────────────────────
+        // Keyed on (_text reference, width). _text is always reassigned (never mutated in place),
+        // so reference equality correctly detects changes without a string copy/hash.
+        private Point[] _layoutCache;
+        private string  _layoutCacheText;
+        private int     _layoutCacheWidth = -1;
+
+        // ── Dots render cache ─────────────────────────────────────────────────
+        // Pre-rendered bitmap of braille dots. Only regenerated when _text or Width changes.
+        // Height is the natural content height (not constrained), so BottomCenter drag
+        // (height-only change) never regenerates the bitmap.
+        private Bitmap _dotsBitmap;
+        private string _dotsBitmapText;
+        private int    _dotsBitmapWidth = -1;
+
         // ── Drag / resize state ───────────────────────────────────────────────
         private int          _constrainedHeight = 0; // 0 = unconstrained; >0 = max visible height in px
         private bool         _dragging;
@@ -93,7 +108,7 @@ namespace BrailleUrdu
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) _caretTimer.Dispose();
+            if (disposing) { _caretTimer.Dispose(); _dotsBitmap?.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -167,11 +182,15 @@ namespace BrailleUrdu
         // characters within an overlong word hard-wrap character by character.
         private Point[] BuildLayout(int width)
         {
-            float cellW = CellPx;
+            if (_layoutCache != null
+                && _layoutCacheWidth == width
+                && ReferenceEquals(_layoutCacheText, _text))
+                return _layoutCache;
+
+            float cellW  = CellPx;
             float availW = width - PAD * 2;
-            var pos = new Point[_text.Length + 1];
-            int col = 0, row = 0;
-            int i = 0;
+            var   pos    = new Point[_text.Length + 1];
+            int   col    = 0, row = 0, i = 0;
 
             while (i < _text.Length)
             {
@@ -200,6 +219,10 @@ namespace BrailleUrdu
                 }
             }
             pos[_text.Length] = new Point(col, row);
+
+            _layoutCache      = pos;
+            _layoutCacheText  = _text;
+            _layoutCacheWidth = width;
             return pos;
         }
 
@@ -365,39 +388,60 @@ namespace BrailleUrdu
         // ── Dot rendering ─────────────────────────────────────────────────────
         private void DrawBrailleDots(Graphics g, Point[] layout)
         {
+            // Regenerate only when text or width changes; height changes (BottomCenter drag)
+            // do NOT invalidate the cache since dot positions depend only on width.
+            if (_dotsBitmap == null
+                || _dotsBitmapWidth != Width
+                || !ReferenceEquals(_dotsBitmapText, _text))
+            {
+                _dotsBitmap?.Dispose();
+                _dotsBitmap      = RenderDotsBitmap(layout);
+                _dotsBitmapText  = _text;
+                _dotsBitmapWidth = Width;
+            }
+            g.DrawImage(_dotsBitmap, 0, 0);
+        }
+
+        private Bitmap RenderDotsBitmap(Point[] layout)
+        {
             float dotSpacePx = DocumentPage.DOT_SPACING_MM * PxPerMm;
             float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
             float cellW      = CellPx;
             float lineH      = LinePx;
-            // Center the dot grid within the cell rectangle so dots sit fully
-            // inside the selection/highlight rectangle [ox, ox+cellW] x [oy, oy+lineH].
-            float dotOffsetX = (cellW - dotSpacePx)       / 2f;
-            float dotOffsetY = (lineH  - 2 * dotSpacePx)  / 2f;
+            float dotOffsetX = (cellW - dotSpacePx)      / 2f;
+            float dotOffsetY = (lineH - 2 * dotSpacePx)  / 2f;
 
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
+            // Bitmap covers the natural (unconstrained) content height so it stays
+            // valid across BottomCenter drag without regeneration.
+            int bmpH = (layout[_text.Length].Y + 1) * (int)lineH;
+            var bmp  = new Bitmap(Math.Max(1, Width), Math.Max(1, bmpH),
+                                  System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+            using (var bg = Graphics.FromImage(bmp))
             {
-                for (int i = 0; i < _text.Length; i++)
+                bg.Clear(Color.Transparent);
+                bg.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var brush = new SolidBrush(Color.FromArgb(34, 139, 34)))
                 {
-                    char c = _text[i];
-                    if ((int)c < 0x2800 || (int)c > 0x28FF) continue;
-
-                    float ox = PAD + layout[i].X * cellW;
-                    float oy = layout[i].Y * lineH;
-
-                    int bits = (int)c - 0x2800;
-                    for (int b = 0; b < 8; b++)
+                    for (int i = 0; i < _text.Length; i++)
                     {
-                        if ((bits & (1 << b)) == 0) continue;
-                        int dcol = b < 6 ? b / 3 : b - 6;
-                        int drow = b < 6 ? b % 3 : 3;
-                        float cx = ox + dotOffsetX + dcol * dotSpacePx;
-                        float cy = oy + dotOffsetY + drow * dotSpacePx;
-                        g.FillEllipse(brush, cx - dotRad, cy - dotRad, dotRad * 2, dotRad * 2);
+                        char c = _text[i];
+                        if ((int)c < 0x2800 || (int)c > 0x28FF) continue;
+                        float ox   = PAD + layout[i].X * cellW;
+                        float oy   = layout[i].Y * lineH;
+                        int   bits = (int)c - 0x2800;
+                        for (int b = 0; b < 8; b++)
+                        {
+                            if ((bits & (1 << b)) == 0) continue;
+                            int   dcol = b < 6 ? b / 3 : b - 6;
+                            int   drow = b < 6 ? b % 3 : 3;
+                            float cx   = ox + dotOffsetX + dcol * dotSpacePx;
+                            float cy   = oy + dotOffsetY + drow * dotSpacePx;
+                            bg.FillEllipse(brush, cx - dotRad, cy - dotRad, dotRad * 2, dotRad * 2);
+                        }
                     }
                 }
             }
-            g.SmoothingMode = SmoothingMode.None;
+            return bmp;
         }
 
         // ── Caret ─────────────────────────────────────────────────────────────
@@ -704,10 +748,13 @@ namespace BrailleUrdu
                     break;
                 case ResizeHandle.BottomCenter:
                     // Vertical-only drag: constrains visible height for trim workflow.
+                    // Use current Left/Top (not stale _startLocation) because AutoScroll
+                    // adjusts child Locations when the scroll range changes as the box shrinks.
                     nh = Math.Max(mh, _startSize.Height + dy);
                     int naturalH = ComputeHeight(nw);
                     if (nh >= naturalH) { nh = naturalH; _constrainedHeight = 0; }
                     else                { _constrainedHeight = nh; }
+                    nx = Left; ny = Top;
                     break;
             }
 
