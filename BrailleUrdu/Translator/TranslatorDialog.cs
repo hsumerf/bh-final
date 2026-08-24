@@ -13,7 +13,6 @@ namespace BrailleUrdu
         private readonly RichTextBox  _textBox;
         private readonly RichTextBox  _brailleBox;
         private readonly Font         _brailleFont;
-        private bool _updating;
 
         public TranslatorDialog(string langCode)
         {
@@ -67,10 +66,8 @@ namespace BrailleUrdu
                 Anchor    = AnchorStyles.Top | AnchorStyles.Bottom
             };
 
-            _textBox.KeyPress       += OnTextKeyPress;
-            _textBox.TextChanged    += OnTextBoxChanged;
-            _brailleBox.KeyPress    += OnBrailleKeyPress;
-            _brailleBox.TextChanged += OnBrailleBoxChanged;
+            _textBox.KeyPress    += OnTextKeyPress;
+            _brailleBox.KeyPress += OnBrailleKeyPress;
 
             var btnClear = new Button
             {
@@ -80,9 +77,26 @@ namespace BrailleUrdu
             };
             btnClear.Click += (s, e) =>
             {
-                _updating = true;
-                try { _textBox.Clear(); _brailleBox.Clear(); }
-                finally { _updating = false; }
+                _textBox.Clear();
+                _brailleBox.Clear();
+            };
+
+            var btnTranslate = new Button
+            {
+                Text   = "Translate",
+                Size   = new Size(90, 28),
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
+            };
+            btnTranslate.Click += (s, e) =>
+            {
+                if (_textBox.Focused || (!_brailleBox.Focused))
+                {
+                    _brailleBox.Text = ToBraille(_textBox.Text);
+                }
+                else
+                {
+                    _textBox.Text = _spec.FromBraille(_brailleBox.Text);
+                }
             };
 
             var btnClose = new Button
@@ -93,14 +107,14 @@ namespace BrailleUrdu
                 Anchor       = AnchorStyles.Bottom | AnchorStyles.Right
             };
 
-            Controls.AddRange(new Control[] { lblText, lblBraille, divider, _textBox, _brailleBox, btnClear, btnClose });
+            Controls.AddRange(new Control[] { lblText, lblBraille, divider, _textBox, _brailleBox, btnClear, btnTranslate, btnClose });
             CancelButton = btnClose;
 
-            Resize += (s, e) => DoLayout(lblBraille, divider, btnClear, btnClose);
-            DoLayout(lblBraille, divider, btnClear, btnClose);
+            Resize += (s, e) => DoLayout(lblBraille, divider, btnClear, btnTranslate, btnClose);
+            DoLayout(lblBraille, divider, btnClear, btnTranslate, btnClose);
         }
 
-        private void DoLayout(Label lblBraille, Panel divider, Button btnClear, Button btnClose)
+        private void DoLayout(Label lblBraille, Panel divider, Button btnClear, Button btnTranslate, Button btnClose)
         {
             int mid    = ClientSize.Width / 2;
             int top    = 36;
@@ -111,9 +125,11 @@ namespace BrailleUrdu
             divider.SetBounds(mid - 4, top, 2, boxH);
             _brailleBox.SetBounds(mid + 4, top, ClientSize.Width - mid - 20, boxH);
 
-            lblBraille.Location = new Point(mid + 4, 12);
-            btnClear.Location   = new Point(16, ClientSize.Height - 42);
-            btnClose.Location   = new Point(ClientSize.Width - 96, ClientSize.Height - 42);
+            lblBraille.Location    = new Point(mid + 4, 12);
+            int btnY               = ClientSize.Height - 42;
+            btnClear.Location      = new Point(16, btnY);
+            btnClose.Location      = new Point(ClientSize.Width - 96, btnY);
+            btnTranslate.Location  = new Point(btnClose.Left - btnTranslate.Width - 8, btnY);
         }
 
         // ── Text box key intercept (English keyboard → language characters) ──
@@ -161,34 +177,6 @@ namespace BrailleUrdu
             e.Handled = true;
         }
 
-        // ── Bidirectional sync ────────────────────────────────────────────────
-
-        private void OnTextBoxChanged(object sender, EventArgs e)
-        {
-            if (_updating || _brailleBox.Focused) return;
-            _updating = true;
-            try
-            {
-                int sel = _brailleBox.SelectionStart;
-                _brailleBox.Text = ToBraille(_textBox.Text);
-                _brailleBox.SelectionStart = Math.Min(sel, _brailleBox.TextLength);
-            }
-            finally { _updating = false; }
-        }
-
-        private void OnBrailleBoxChanged(object sender, EventArgs e)
-        {
-            if (_updating || _textBox.Focused) return;
-            _updating = true;
-            try
-            {
-                int sel = _textBox.SelectionStart;
-                _textBox.Text = _spec.FromBraille(_brailleBox.Text);
-                _textBox.SelectionStart = Math.Min(sel, _textBox.TextLength);
-            }
-            finally { _updating = false; }
-        }
-
         private string ToBraille(string text)
         {
             var sb = new StringBuilder();
@@ -197,6 +185,11 @@ namespace BrailleUrdu
                 if (c == '\r') continue;
                 if (c == '\n') { sb.Append('\n'); continue; }
                 string br = _spec.ToBraille(c);
+                if (br.Length == 0 && char.IsUpper(c))
+                {
+                    br = _spec.ToBraille(char.ToLower(c));
+                    if (br.Length > 0) sb.Append('⠠');
+                }
                 if (br.Length > 0)
                 {
                     if (char.IsDigit(c)) sb.Append('⠼');
