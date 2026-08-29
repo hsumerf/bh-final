@@ -137,7 +137,6 @@ namespace BrailleUrdu
             base.OnActivated(e);
             Document.SetCurrent(_myDocument);
             canvasPanel.PageChanged();
-            pagesPanel.RebuildThumbnails();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)

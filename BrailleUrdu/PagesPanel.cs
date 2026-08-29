@@ -8,7 +8,6 @@ namespace BrailleUrdu
     {
         private readonly Action _onPageChanged;
         private CanvasPanel     _canvas;
-        private Timer           _refreshTimer;
 
         private Label            _lblPages;
         private Label            _lblMasterPage;
@@ -35,10 +34,6 @@ namespace BrailleUrdu
         public void SetCanvas(CanvasPanel canvas)
         {
             _canvas = canvas;
-            // Debounce: rebuild thumbnails 400 ms after the last document change.
-            _refreshTimer = new Timer { Interval = 400 };
-            _refreshTimer.Tick += (s, e) => { _refreshTimer.Stop(); RebuildThumbnails(); };
-            canvas.DocumentChanged += (s, e) => { _refreshTimer.Stop(); _refreshTimer.Start(); };
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -300,7 +295,9 @@ namespace BrailleUrdu
         {
             Document.CurrentPageIndex = index;
             _onPageChanged?.Invoke();   // resets scroll and updates visibility first
+            var savedScroll = _content.AutoScrollPosition;
             RebuildThumbnails();        // then render thumbnails with settled canvas state
+            _content.AutoScrollPosition = new Point(-savedScroll.X, -savedScroll.Y);
         }
 
         private void OnAddPage(object sender, EventArgs e)

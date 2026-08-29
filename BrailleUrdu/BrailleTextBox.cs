@@ -12,6 +12,8 @@ namespace BrailleUrdu
         private static int   CellPx  => (int)(DocumentPage.CELL_WIDTH_MM  * PxPerMm);
         private static int   LinePx  => (int)(DocumentPage.LINE_HEIGHT_MM * PxPerMm);
 
+        private int TotalLineH => LinePx + (int)(1.5f * PxPerMm);
+
         private const int HANDLE_SIZE = 10;
         private const int PAD         = 12;
 
@@ -153,7 +155,7 @@ namespace BrailleUrdu
         private void FitSize()
         {
             int cellW = CellPx;
-            int lineH = LinePx;
+            int lineH = TotalLineH;
 
             int maxWidth;
             var canvas = Parent as CanvasPanel;
@@ -229,7 +231,7 @@ namespace BrailleUrdu
         private int ComputeHeight(int width)
         {
             var layout = BuildLayout(width);
-            return (layout[_text.Length].Y + 1) * LinePx;
+            return (layout[_text.Length].Y + 1) * TotalLineH;
         }
 
         public bool HasOverflow => _constrainedHeight > 0 && ComputeHeight(Width) > _constrainedHeight;
@@ -238,7 +240,7 @@ namespace BrailleUrdu
         {
             if (!HasOverflow) return;
             var layout = BuildLayout(Width);
-            int visibleRows = _constrainedHeight / LinePx;
+            int visibleRows = _constrainedHeight / TotalLineH;
             int splitIdx = _text.Length;
             for (int i = 0; i < _text.Length; i++)
             {
@@ -297,7 +299,7 @@ namespace BrailleUrdu
             // Overflow indicator: red stripe at bottom edge when content is constrained
             if (_constrainedHeight > 0)
             {
-                int naturalH = (layout[_text.Length].Y + 1) * LinePx;
+                int naturalH = (layout[_text.Length].Y + 1) * TotalLineH;
                 if (naturalH > _constrainedHeight)
                 {
                     using (var pen = new Pen(Color.FromArgb(220, 60, 60), 2f))
@@ -347,7 +349,7 @@ namespace BrailleUrdu
             if (string.IsNullOrEmpty(_searchHighlight)) return;
             int   searchLen = _searchHighlight.Length;
             float cellW     = CellPx;
-            float lineH     = LinePx;
+            float lineH     = TotalLineH;
 
             using (var brush = new SolidBrush(Color.FromArgb(180, 255, 210, 0)))
             {
@@ -373,7 +375,7 @@ namespace BrailleUrdu
         {
             if (!HasSelection || !_textEditMode) return;
             int start = SelStart, end = SelEnd;
-            float cellW = CellPx, lineH = LinePx;
+            float cellW = CellPx, lineH = TotalLineH;
             using (var brush = new SolidBrush(Color.FromArgb(80, 51, 153, 255)))
             {
                 for (int i = start; i < end; i++)
@@ -388,8 +390,6 @@ namespace BrailleUrdu
         // ── Dot rendering ─────────────────────────────────────────────────────
         private void DrawBrailleDots(Graphics g, Point[] layout)
         {
-            // Regenerate only when text or width changes; height changes (BottomCenter drag)
-            // do NOT invalidate the cache since dot positions depend only on width.
             if (_dotsBitmap == null
                 || _dotsBitmapWidth != Width
                 || !ReferenceEquals(_dotsBitmapText, _text))
@@ -407,9 +407,9 @@ namespace BrailleUrdu
             float dotSpacePx = DocumentPage.DOT_SPACING_MM * PxPerMm;
             float dotRad     = Math.Max(1.5f, dotSpacePx * 0.27f);
             float cellW      = CellPx;
-            float lineH      = LinePx;
+            float lineH      = TotalLineH;
             float dotOffsetX = (cellW - dotSpacePx)      / 2f;
-            float dotOffsetY = (lineH - 2 * dotSpacePx)  / 2f;
+            float dotOffsetY = (LinePx - 2 * dotSpacePx) / 2f; // dots centered within base line height, not the extra gap
 
             // Bitmap covers the natural (unconstrained) content height so it stays
             // valid across BottomCenter drag without regeneration.
@@ -449,19 +449,19 @@ namespace BrailleUrdu
         {
             var p = CursorScreenPos(layout);
             using (var pen = new Pen(Color.Black, 1.5f))
-                g.DrawLine(pen, p.X, p.Y + 1, p.X, p.Y + LinePx - 2);
+                g.DrawLine(pen, p.X, p.Y + 1, p.X, p.Y + TotalLineH - 2);
         }
 
         private PointF CursorScreenPos(Point[] layout)
         {
             int idx = Math.Min(_cursorPos, _text.Length);
-            return new PointF(PAD + layout[idx].X * (float)CellPx, layout[idx].Y * (float)LinePx);
+            return new PointF(PAD + layout[idx].X * (float)CellPx, layout[idx].Y * (float)TotalLineH);
         }
 
         private int TextIndexAt(Point p)
         {
             var layout = BuildLayout(Width);
-            float cellW = CellPx, lineH = LinePx;
+            float cellW = CellPx, lineH = TotalLineH;
             int best = _text.Length;
             float bestDist = float.MaxValue;
 

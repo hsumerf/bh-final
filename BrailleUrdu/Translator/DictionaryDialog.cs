@@ -120,11 +120,11 @@ namespace BrailleUrdu
 
             var btnClose = new Button
             {
-                Text         = "Close",
-                Size         = new Size(90, 28),
-                DialogResult = DialogResult.Cancel,
-                Anchor       = AnchorStyles.Bottom | AnchorStyles.Right
+                Text   = "Close",
+                Size   = new Size(90, 28),
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
             };
+            btnClose.Click += (s, e) => Close();
 
             // ── Status label ──────────────────────────────────────────────────
             _lblStatus = new Label

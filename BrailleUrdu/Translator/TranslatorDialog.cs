@@ -101,11 +101,11 @@ namespace BrailleUrdu
 
             var btnClose = new Button
             {
-                Text         = "Close",
-                Size         = new Size(80, 28),
-                DialogResult = DialogResult.Cancel,
-                Anchor       = AnchorStyles.Bottom | AnchorStyles.Right
+                Text   = "Close",
+                Size   = new Size(80, 28),
+                Anchor = AnchorStyles.Bottom | AnchorStyles.Right
             };
+            btnClose.Click += (s, e) => Close();
 
             Controls.AddRange(new Control[] { lblText, lblBraille, divider, _textBox, _brailleBox, btnClear, btnTranslate, btnClose });
             CancelButton = btnClose;
