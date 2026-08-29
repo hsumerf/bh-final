@@ -632,10 +632,9 @@ namespace BrailleUrdu
 
         public void ActivateTactileTool()
         {
-            using (var dlg = new TactileEditorDialog())
+            var dlg = new TactileEditorDialog();
+            dlg.ConfirmClicked += grid =>
             {
-                if (dlg.ShowDialog() != DialogResult.OK) return;
-
                 var origin = PageOrigin();
                 var page   = Document.CurrentPage;
                 var loc    = StackMode
@@ -644,13 +643,15 @@ namespace BrailleUrdu
                         (int)(origin.X + MmToPx(page.MarginLeft)),
                         (int)(origin.Y + MmToPx(page.MarginTop)));
 
-                var box = new TactileBox { Location = loc, DotGrid = dlg.ResultGrid };
+                var box = new TactileBox { Location = loc, DotGrid = grid };
                 RegisterControl(box);
                 Controls.Add(box);
                 box.BringToFront();
                 box.Focus();
                 DocumentChanged?.Invoke(this, EventArgs.Empty);
-            }
+            };
+            dlg.FormClosed += (s, e) => dlg.Dispose();
+            dlg.Show(FindForm());
         }
 
         public void InsertPageNumber(bool braille)

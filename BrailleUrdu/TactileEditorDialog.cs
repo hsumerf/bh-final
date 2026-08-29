@@ -15,6 +15,8 @@ namespace BrailleUrdu
 
         public bool[,] ResultGrid => TrimDots();
 
+        public event Action<bool[,]> ConfirmClicked;
+
         public TactileEditorDialog()
         {
             // Full embossable area at braille dot spacing
@@ -60,6 +62,9 @@ namespace BrailleUrdu
             Size            = new Size(880, 680);
             MinimumSize     = new Size(600, 480);
             BackColor       = Color.FromArgb(242, 242, 242);
+            ShowInTaskbar   = true;
+            MaximizeBox     = true;
+            MinimizeBox     = true;
 
             // ── Tool strip (left 80 px) ────────────────────────────────────────
             var tools = new Panel
@@ -180,18 +185,19 @@ namespace BrailleUrdu
 
             var btnCancel = new Button
             {
-                Text         = "Cancel",
-                Size         = new Size(90, 28),
-                FlatStyle    = FlatStyle.System,
-                DialogResult = DialogResult.Cancel
+                Text      = "Cancel",
+                Size      = new Size(90, 28),
+                FlatStyle = FlatStyle.System
             };
+            btnCancel.Click += (s, e) => Close();
+
             var btnOK = new Button
             {
-                Text         = "Confirm",
-                Size         = new Size(90, 28),
-                FlatStyle    = FlatStyle.System,
-                DialogResult = DialogResult.OK
+                Text      = "Confirm",
+                Size      = new Size(90, 28),
+                FlatStyle = FlatStyle.System
             };
+            btnOK.Click += (s, e) => { ConfirmClicked?.Invoke(ResultGrid); Close(); };
 
             bottom.Resize += (s, e) =>
             {
@@ -200,8 +206,6 @@ namespace BrailleUrdu
             };
 
             bottom.Controls.AddRange(new Control[] { btnCancel, btnOK });
-            AcceptButton = btnOK;
-            CancelButton = btnCancel;
 
             Controls.Add(_scroll);
             Controls.Add(tools);
