@@ -151,6 +151,15 @@ namespace BrailleUrdu
             Invalidate();
         }
 
+        // Wired by CanvasPanel.RegisterControl so text edits push one undo entry per session
+        public Action PushUndoCallback;
+        private bool  _textUndoPushed;
+
+        private void EnsureUndoPushed()
+        {
+            if (!_textUndoPushed) { _textUndoPushed = true; PushUndoCallback?.Invoke(); }
+        }
+
         // ── Mode ──────────────────────────────────────────────────────────────
         private bool _textEditMode  = false;
         private bool _justGotFocus  = false; // true from OnGotFocus until first OnMouseDown
@@ -1326,6 +1335,7 @@ namespace BrailleUrdu
             char c = e.KeyChar;
             if (c < ' ') return; // skip Backspace, Escape, Enter, Ctrl+A/C/V/X and all other control chars
 
+            EnsureUndoPushed();
             if (!_textEditMode) EnterTextMode();
 
             if (HasSelection) DeleteSelection();
@@ -1348,6 +1358,13 @@ namespace BrailleUrdu
         protected override void OnKeyDown(KeyEventArgs e)
         {
             base.OnKeyDown(e);
+            if (_textEditMode)
+            {
+                bool mutates = e.KeyCode == Keys.Delete || e.KeyCode == Keys.Back ||
+                               e.KeyCode == Keys.Enter  ||
+                               (e.Control && (e.KeyCode == Keys.X || e.KeyCode == Keys.V));
+                if (mutates) EnsureUndoPushed();
+            }
             switch (e.KeyCode)
             {
                 case Keys.Delete:
@@ -1516,6 +1533,7 @@ namespace BrailleUrdu
             base.OnGotFocus(e);
             _justGotFocus    = true;
             _textEditMode    = false;
+            _textUndoPushed  = false;
             _selectionAnchor = _cursorPos;
             _caretVisible    = false;
             Invalidate();

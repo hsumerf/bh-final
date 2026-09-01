@@ -255,19 +255,40 @@ namespace BrailleUrdu
 
         private void ConvertToDots(System.Drawing.Image src)
         {
-            // Resize to grid dimensions, then threshold luminance to get dot pattern
+            // Scale proportionally so the image is not stretched to fit the grid.
+            // Dots are equally spaced in both axes, so the grid's pixel aspect ratio
+            // equals _cols : _rows. A square source must map to equal dot counts.
+            float srcAspect  = (float)src.Width / src.Height;
+            float gridAspect = (float)_cols / _rows;
+
+            int drawW, drawH, offX, offY;
+            if (srcAspect > gridAspect)
+            {
+                drawW = _cols;
+                drawH = Math.Max(1, (int)(_cols / srcAspect));
+                offX  = 0;
+                offY  = (_rows - drawH) / 2;
+            }
+            else
+            {
+                drawH = _rows;
+                drawW = Math.Max(1, (int)(_rows * srcAspect));
+                offX  = (_cols - drawW) / 2;
+                offY  = 0;
+            }
+
             using (var bmp = new System.Drawing.Bitmap(_cols, _rows))
             {
                 using (var g = System.Drawing.Graphics.FromImage(bmp))
                 {
+                    g.Clear(System.Drawing.Color.White);
                     g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                    g.DrawImage(src, 0, 0, _cols, _rows);
+                    g.DrawImage(src, offX, offY, drawW, drawH);
                 }
                 for (int row = 0; row < _rows; row++)
                 for (int col = 0; col < _cols; col++)
                 {
                     var px  = bmp.GetPixel(col, row);
-                    // Standard luminance formula; dark pixels → raised dot
                     float lum = 0.299f * px.R + 0.587f * px.G + 0.114f * px.B;
                     _dots[col, row] = lum < 128f;
                 }

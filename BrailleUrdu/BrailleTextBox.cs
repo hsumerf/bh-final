@@ -75,6 +75,11 @@ namespace BrailleUrdu
         private string _dotsBitmapText;
         private int    _dotsBitmapWidth = -1;
 
+        // Wired by CanvasPanel.RegisterControl so moves/resizes/text push one undo entry each
+        public Action PushUndoCallback;
+        private bool  _textUndoPushed; // true after first keystroke in this text-edit session
+        private bool  _dragUndoPushed; // true once undo is pushed for the current drag gesture
+
         // ── Drag / resize state ───────────────────────────────────────────────
         private int          _constrainedHeight = 0; // 0 = unconstrained; >0 = max visible height in px
         private bool         _dragging;
@@ -138,6 +143,7 @@ namespace BrailleUrdu
 
         private void ApplyTextChange(string newText, int newCursor)
         {
+            if (!_textUndoPushed) { _textUndoPushed = true; PushUndoCallback?.Invoke(); }
             _text            = newText;
             _cursorPos       = newCursor;
             _selectionAnchor = newCursor;
@@ -619,6 +625,9 @@ namespace BrailleUrdu
             _dragging        = !_resizing && !_textEditMode;
             Capture          = true;
 
+            if (_resizing) PushUndoCallback?.Invoke(); // resize: visible the moment handle is grabbed
+            _dragUndoPushed = false;                   // drag: push deferred to first actual movement
+
             if (_dragging)
             {
                 var canvas = Parent as CanvasPanel;
@@ -676,6 +685,13 @@ namespace BrailleUrdu
                 _caretVisible = true;
                 Invalidate();
                 return;
+            }
+
+            // Push undo once at the start of an actual drag movement (not on mere click)
+            if (_dragging && !_dragUndoPushed)
+            {
+                _dragUndoPushed = true;
+                PushUndoCallback?.Invoke();
             }
 
             if (!_dragging && !_resizing)
@@ -764,6 +780,7 @@ namespace BrailleUrdu
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
+            if (_dragging || _resizing) _textUndoPushed = false; // text after move/resize = new entry
             _dragging = _resizing = false;
             _activeHandle        = ResizeHandle.None;
             _groupStartLocations = null;
@@ -929,6 +946,7 @@ namespace BrailleUrdu
             base.OnGotFocus(e);
             _justGotFocus    = true;
             _textEditMode    = false;
+            _textUndoPushed  = false;
             _selectionAnchor = _cursorPos;
             _caretVisible    = false;
             Invalidate();

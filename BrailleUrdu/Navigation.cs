@@ -15,6 +15,7 @@ namespace BrailleUrdu
         public event EventHandler SaveAsClicked;
         public event EventHandler ExportClicked;
         public event EventHandler UndoClicked;
+        public event EventHandler RedoClicked;
         public event EventHandler CutClicked;
         public event EventHandler CopyClicked;
         public event EventHandler PasteClicked;
@@ -82,6 +83,7 @@ namespace BrailleUrdu
             // ── Edit ─────────────────────────────────────────────────────────
             edit.DropDownItems.AddRange(new ToolStripItem[] {
                 EditItem("Undo",      Keys.Control | Keys.Z,              () => UndoClicked),
+                EditItem("Redo",      Keys.Control | Keys.Y,              () => RedoClicked),
                 new ToolStripSeparator(),
                 EditItem("Cut",       Keys.Control | Keys.X,              () => CutClicked),
                 EditItem("Copy",      Keys.Control | Keys.C,              () => CopyClicked),

@@ -59,6 +59,7 @@ namespace BrailleUrdu
         // ── Edit state ────────────────────────────────────────────────────────
         private Control            _focused;
         private readonly List<string> _undoStack = new List<string>();
+        private readonly List<string> _redoStack = new List<string>();
         private string             _clipboard;
         private const int          MAX_UNDO = 50;
         private ContextMenuStrip   _contextMenu;
@@ -336,6 +337,11 @@ namespace BrailleUrdu
             _pageControls[page].Add(ctrl);
             ctrl.ContextMenuStrip = _contextMenu;
 
+            if (ctrl is BrailleTextBox btb)
+                btb.PushUndoCallback = PushUndo;
+            else if (ctrl is PrintTextBox ptb)
+                ptb.PushUndoCallback = PushUndo;
+
             ctrl.GotFocus += (s, e) =>
             {
                 bool shift = (Control.ModifierKeys & Keys.Shift) != 0;
@@ -523,6 +529,7 @@ namespace BrailleUrdu
                     (int)(origin.Y + MmToPx(page.MarginTop)));
             var box = new PrintTextBox { Location = loc };
             box.Width = box.Width * 5 / 4;
+            PushUndo();
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
@@ -552,6 +559,7 @@ namespace BrailleUrdu
                         (int)(origin.Y + MmToPx(page.MarginTop)));
 
                 var box = new ImageBox(img) { Location = loc };
+                PushUndo();
                 RegisterControl(box);
                 Controls.Add(box);
                 box.BringToFront();
@@ -579,6 +587,7 @@ namespace BrailleUrdu
                 Location    = loc,
                 BrailleText = sb.ToString()
             };
+            PushUndo();
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
@@ -598,6 +607,7 @@ namespace BrailleUrdu
                     (int)(origin.Y + MmToPx(page.MarginTop)));
 
             var box = new LineBox { Location = loc, Size = new Size(w, 20) };
+            PushUndo();
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
@@ -623,6 +633,7 @@ namespace BrailleUrdu
                 RowSpec  = "1-1",
                 ColSpec  = "1-1"
             };
+            PushUndo();
             RegisterControl(box);
             Controls.Add(box);
             box.BringToFront();
@@ -644,6 +655,7 @@ namespace BrailleUrdu
                         (int)(origin.Y + MmToPx(page.MarginTop)));
 
                 var box = new TactileBox { Location = loc, DotGrid = grid };
+                PushUndo();
                 RegisterControl(box);
                 Controls.Add(box);
                 box.BringToFront();
@@ -980,14 +992,30 @@ namespace BrailleUrdu
         {
             _undoStack.Add(DocumentSerializer.SnapshotPage(Document.CurrentPage, this));
             if (_undoStack.Count > MAX_UNDO) _undoStack.RemoveAt(0);
+            _redoStack.Clear();
             DocumentChanged?.Invoke(this, EventArgs.Empty);
         }
 
         public void EditUndo()
         {
             if (_undoStack.Count == 0) return;
+            _redoStack.Add(DocumentSerializer.SnapshotPage(Document.CurrentPage, this));
+            if (_redoStack.Count > MAX_UNDO) _redoStack.RemoveAt(0);
             string snap = _undoStack[_undoStack.Count - 1];
             _undoStack.RemoveAt(_undoStack.Count - 1);
+            DocumentSerializer.RestorePageSnapshot(snap, Document.CurrentPage, this);
+            _focused = null;
+            SelectionChanged?.Invoke(null);
+            DocumentChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        public void EditRedo()
+        {
+            if (_redoStack.Count == 0) return;
+            _undoStack.Add(DocumentSerializer.SnapshotPage(Document.CurrentPage, this));
+            if (_undoStack.Count > MAX_UNDO) _undoStack.RemoveAt(0);
+            string snap = _redoStack[_redoStack.Count - 1];
+            _redoStack.RemoveAt(_redoStack.Count - 1);
             DocumentSerializer.RestorePageSnapshot(snap, Document.CurrentPage, this);
             _focused = null;
             SelectionChanged?.Invoke(null);
@@ -1232,6 +1260,11 @@ namespace BrailleUrdu
                 _pageControls[page] = new List<System.Windows.Forms.Control>();
             _pageControls[page].Add(ctrl);
             ctrl.ContextMenuStrip = _contextMenu;
+
+            if (ctrl is BrailleTextBox lbtb)
+                lbtb.PushUndoCallback = PushUndo;
+            else if (ctrl is PrintTextBox lptb)
+                lptb.PushUndoCallback = PushUndo;
 
             ctrl.GotFocus += (s, e) =>
             {
