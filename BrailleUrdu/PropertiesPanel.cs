@@ -28,7 +28,12 @@ namespace BrailleUrdu
         private BrailleTextBox _brailleTarget;
         private LineBox        _lineTarget;
         private TableBox       _tableTarget;
+        private TactileBox     _tactileTarget;
         private bool           _updating;
+
+        // W / H transform row — hidden for TactileBox
+        private Label _lblW, _lblH;
+        private Panel _wrapW, _wrapH;
 
         // ── Transform fields ──────────────────────────────────────────────────
         private TextBox _tbX, _tbY, _tbW, _tbH;
@@ -110,6 +115,11 @@ namespace BrailleUrdu
             int col2 = PAD_L + INNER_W / 2 + 4;
             int fw   = INNER_W / 2 - 20;
 
+            _lblW  = MkLabel("W", new Point(PAD_L, 68), false);
+            _wrapW = InputWrap(_tbW, new Point(PAD_L + 16, 64), fw);
+            _lblH  = MkLabel("H", new Point(col2, 68), false);
+            _wrapH = InputWrap(_tbH, new Point(col2 + 16, 64), fw);
+
             transformArea.Controls.AddRange(new Control[]
             {
                 MkLabel("Transform", new Point(PAD_L, 12), true),
@@ -117,10 +127,7 @@ namespace BrailleUrdu
                 InputWrap(_tbX, new Point(PAD_L + 16, 36), fw),
                 MkLabel("Y", new Point(col2, 40), false),
                 InputWrap(_tbY, new Point(col2 + 16, 36), fw),
-                MkLabel("W", new Point(PAD_L, 68), false),
-                InputWrap(_tbW, new Point(PAD_L + 16, 64), fw),
-                MkLabel("H", new Point(col2, 68), false),
-                InputWrap(_tbH, new Point(col2 + 16, 64), fw)
+                _lblW, _wrapW, _lblH, _wrapH
             });
 
             // ── Style panel (PrintTextBox only) ───────────────────────────────
@@ -492,6 +499,7 @@ namespace BrailleUrdu
             _brailleTarget = ctrl as BrailleTextBox;
             _lineTarget    = ctrl as LineBox;
             _tableTarget   = ctrl as TableBox;
+            _tactileTarget = ctrl as TactileBox;
 
             if (_target != null)
             {
@@ -505,6 +513,12 @@ namespace BrailleUrdu
             _braillePanel.Visible = _brailleTarget != null;
             _linePanel   .Visible = _lineTarget    != null;
             _tablePanel  .Visible = _tableTarget   != null;
+
+            bool isTactile = _tactileTarget != null;
+            _lblW .Visible = !isTactile;
+            _wrapW.Visible = !isTactile;
+            _lblH .Visible = !isTactile;
+            _wrapH.Visible = !isTactile;
 
             RefreshFields();
             RefreshStyle();
@@ -586,7 +600,8 @@ namespace BrailleUrdu
             {
                 var origin = _canvas.PageOriginPx;
                 _target.Location = new Point((int)origin.X + x, (int)origin.Y + y);
-                if (w >= 10 && h >= 10) _target.Size = new Size(w, h);
+                if (_tactileTarget == null && w >= 10 && h >= 10)
+                    _target.Size = new Size(w, h);
             }
             finally { _updating = false; }
         }

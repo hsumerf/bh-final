@@ -10,8 +10,14 @@ namespace BrailleUrdu
         private readonly bool[,] _dots;
         private readonly int     _cols, _rows;
 
+        private bool[,]  _sourceDots;   // snapshot used for proportional scaling
+
         private DotGridPanel _gridView;
         private Panel        _scroll;
+        private TrackBar     _sizeSlider;
+        private Label        _sizePctLabel;
+        private Label        _lblSize;
+        private bool         _fitting;
 
         public bool[,] ResultGrid => TrimDots();
 
@@ -52,6 +58,72 @@ namespace BrailleUrdu
             for (int r = 0; r < nr; r++)
                 out_[c, r] = _dots[minC + c, minR + r];
             return out_;
+        }
+
+        // Scale _sourceDots proportionally into _dots at pct% of the grid,
+        // centred, maintaining the source's own aspect ratio.
+        private void ApplyScale(int pct)
+        {
+            if (_sourceDots == null) return;
+
+            // Bounding box of the source pattern
+            int srcMinC = _cols, srcMaxC = -1, srcMinR = _rows, srcMaxR = -1;
+            for (int c = 0; c < _cols; c++)
+            for (int r = 0; r < _rows; r++)
+            {
+                if (!_sourceDots[c, r]) continue;
+                if (c < srcMinC) srcMinC = c;
+                if (c > srcMaxC) srcMaxC = c;
+                if (r < srcMinR) srcMinR = r;
+                if (r > srcMaxR) srcMaxR = r;
+            }
+            if (srcMaxC < 0) return; // source empty
+
+            int   srcW      = srcMaxC - srcMinC + 1;
+            int   srcH      = srcMaxR - srcMinR + 1;
+            float srcAspect = (float)srcW / srcH;
+
+            // Target bounding box inside the grid
+            int   tgtW      = Math.Max(1, _cols * pct / 100);
+            int   tgtH      = Math.Max(1, _rows * pct / 100);
+            float tgtAspect = (float)tgtW / tgtH;
+
+            int drawW, drawH;
+            if (srcAspect >= tgtAspect) { drawW = tgtW; drawH = Math.Max(1, (int)(tgtW / srcAspect)); }
+            else                        { drawH = tgtH; drawW = Math.Max(1, (int)(tgtH * srcAspect)); }
+
+            int offC = (_cols - drawW) / 2;
+            int offR = (_rows - drawH) / 2;
+
+            // Clear grid, then paint scaled pattern
+            for (int c = 0; c < _cols; c++)
+            for (int r = 0; r < _rows; r++)
+                _dots[c, r] = false;
+
+            for (int dr = 0; dr < drawH; dr++)
+            for (int dc = 0; dc < drawW; dc++)
+            {
+                int sc0 = srcMinC + dc * srcW / drawW;
+                int sc1 = Math.Max(sc0 + 1, srcMinC + (dc + 1) * srcW / drawW);
+                int sr0 = srcMinR + dr * srcH / drawH;
+                int sr1 = Math.Max(sr0 + 1, srcMinR + (dr + 1) * srcH / drawH);
+                bool any = false;
+                for (int sr = sr0; sr < Math.Min(_rows, sr1) && !any; sr++)
+                for (int sc = sc0; sc < Math.Min(_cols, sc1) && !any; sc++)
+                    any = _sourceDots[sc, sr];
+                _dots[offC + dc, offR + dr] = any;
+            }
+
+            _gridView?.Invalidate();
+        }
+
+        private static bool[,] CopyDots(bool[,] src, int cols, int rows)
+        {
+            var copy = new bool[cols, rows];
+            for (int c = 0; c < cols; c++)
+            for (int r = 0; r < rows; r++)
+                copy[c, r] = src[c, r];
+            return copy;
         }
 
         private void BuildUI()
@@ -159,17 +231,21 @@ namespace BrailleUrdu
             // ── Scrollable grid area ───────────────────────────────────────────
             _scroll = new Panel
             {
-                Dock       = DockStyle.Fill,
-                AutoScroll = true,
-                BackColor  = Color.FromArgb(185, 185, 185),
-                Padding    = new Padding(10)
+                Dock      = DockStyle.Fill,
+                BackColor = Color.FromArgb(185, 185, 185),
+                Padding   = new Padding(10)
             };
 
             _gridView = new DotGridPanel(_dots, _cols, _rows);
-            _gridView.Location = new Point(10, 10);
+            _gridView.Location  = new Point(10, 10);
+            _gridView.OnUserDrew = () =>
+            {
+                _sourceDots = CopyDots(_dots, _cols, _rows);
+                if (_sizeSlider != null) _sizeSlider.Value = 100;
+            };
             _scroll.Controls.Add(_gridView);
 
-            // ── Bottom bar ─────────────────────────────────────────────────────
+            // ── Bottom bar (buttons only) ──────────────────────────────────────
             var bottom = new Panel
             {
                 Height    = 46,
@@ -207,6 +283,45 @@ namespace BrailleUrdu
 
             bottom.Controls.AddRange(new Control[] { btnCancel, btnOK });
 
+            // ── Size slider — lives in the grey zone to the RIGHT of the grid ──
+            _lblSize = new Label
+            {
+                Text      = "Size:",
+                AutoSize  = true,
+                Font      = new Font("Segoe UI", 8.5f),
+                ForeColor = Color.FromArgb(40, 40, 40)
+            };
+
+            _sizeSlider = new TrackBar
+            {
+                Minimum       = 10,
+                Maximum       = 100,
+                Value         = 100,
+                TickStyle     = TickStyle.BottomRight,
+                TickFrequency = 10,
+                SmallChange   = 5,
+                LargeChange   = 10,
+                Size          = new Size(220, 30),
+                BackColor     = Color.FromArgb(185, 185, 185)
+            };
+
+            _sizePctLabel = new Label
+            {
+                Text      = "100%",
+                Size      = new Size(40, 18),
+                Font      = new Font("Segoe UI", 8.5f),
+                ForeColor = Color.FromArgb(40, 40, 40)
+            };
+
+            _sizeSlider.ValueChanged += (s, e) =>
+            {
+                _sizePctLabel.Text = _sizeSlider.Value + "%";
+                ApplyScale(_sizeSlider.Value);
+            };
+
+            // Positioning is done inside FitGrid so it always tracks the grid's right edge
+            _scroll.Controls.AddRange(new Control[] { _lblSize, _sizeSlider, _sizePctLabel });
+
             Controls.Add(_scroll);
             Controls.Add(tools);
             Controls.Add(bottom);
@@ -215,7 +330,7 @@ namespace BrailleUrdu
         // Recompute dot size to fill available space (called on Load + Resize)
         private void FitGrid()
         {
-            if (_gridView == null) return;
+            if (_gridView == null || _fitting) return;
             int aw = ClientSize.Width  - 80 - 20;
             int ah = ClientSize.Height - 46 - 20;
             if (aw <= 0 || ah <= 0) return;
@@ -223,6 +338,26 @@ namespace BrailleUrdu
                 (int)Math.Min((double)aw / _cols, (double)ah / _rows)));
             _gridView.SetDotPx(dpx);
             _gridView.Size = new Size(_cols * dpx + 1, _rows * dpx + 1);
+
+            // Snap form height so there is no grey gap below the grid
+            int idealClientH = _gridView.Height + 20 + 46;
+            if (ClientSize.Height != idealClientH)
+            {
+                _fitting = true;
+                ClientSize = new Size(ClientSize.Width, idealClientH);
+                _fitting   = false;
+            }
+
+            // Place slider at the bottom of the grey zone to the right of the grid
+            if (_sizeSlider != null)
+            {
+                int rx = _gridView.Right + 14;
+                int by = _gridView.Bottom;                            // bottom of grid
+                _sizeSlider.Location   = new Point(rx + _lblSize.Width + 4, by - _sizeSlider.Height);
+                _lblSize.Location      = new Point(rx,                       by - _lblSize.Height - 6);
+                _sizePctLabel.Location = new Point(rx + _lblSize.Width + 4 + _sizeSlider.Width + 4,
+                                                   by - _sizePctLabel.Height - 6);
+            }
         }
 
         protected override void OnLoad(EventArgs e)   { base.OnLoad(e);   FitGrid(); }
@@ -293,6 +428,11 @@ namespace BrailleUrdu
                     _dots[col, row] = lum < 128f;
                 }
             }
+
+            // Capture the imported pattern as the scaling source and reset slider
+            _sourceDots = CopyDots(_dots, _cols, _rows);
+            if (_sizeSlider != null && _sizeSlider.Value != 100)
+                _sizeSlider.Value = 100;   // triggers ValueChanged → ApplyScale(100)
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
@@ -324,6 +464,9 @@ namespace BrailleUrdu
 
             private bool _drawing;
             private bool _drawOn; // true = set dot, false = clear dot
+            private bool _didDraw;
+
+            public Action OnUserDrew;
 
             private bool _eraseMode;
             public bool EraseMode
@@ -379,6 +522,7 @@ namespace BrailleUrdu
                 if (col < 0 || col >= _cols || row < 0 || row >= _rows) return;
                 _drawOn  = EraseMode ? false : !_dots[col, row];
                 _drawing = true;
+                _didDraw = false;
                 Capture  = true;
                 _dots[col, row] = _drawOn;
                 Invalidate();
@@ -392,14 +536,18 @@ namespace BrailleUrdu
                 if (col < 0 || col >= _cols || row < 0 || row >= _rows) return;
                 if (_dots[col, row] == _drawOn) return;
                 _dots[col, row] = _drawOn;
+                _didDraw = true;
                 Invalidate();
             }
 
             protected override void OnMouseUp(MouseEventArgs e)
             {
                 base.OnMouseUp(e);
+                bool wasDrew = _drawing && _didDraw;
                 _drawing = false;
+                _didDraw = false;
                 Capture  = false;
+                if (wasDrew) OnUserDrew?.Invoke();
             }
         }
     }
