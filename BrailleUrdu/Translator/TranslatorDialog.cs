@@ -214,6 +214,15 @@ namespace BrailleUrdu
             private int  _selFocus  = -1;
             private bool _selecting;
 
+            // Caret blink
+            private readonly Timer _caretTimer  = new Timer { Interval = 530 };
+            private bool           _caretVisible = false;
+
+            // Local undo / redo
+            private struct Snap { public string Text; public int Caret; }
+            private readonly Stack<Snap> _undoStack = new Stack<Snap>();
+            private readonly Stack<Snap> _redoStack = new Stack<Snap>();
+
             private const float RAISED   = 4f;
             private const float UNRAISED = 1.5f;
             private const float H_STEP   = 6f;
@@ -225,14 +234,14 @@ namespace BrailleUrdu
             private float CellW => H_STEP + RAISED;
             private float CellH => 2f * V_STEP + RAISED;
 
-            private bool HasSel  => _selAnchor >= 0 && _selAnchor != _selFocus;
-            private int  SelMin  => Math.Min(_selAnchor, _selFocus);
-            private int  SelMax  => Math.Max(_selAnchor, _selFocus);
+            private bool HasSel => _selAnchor >= 0 && _selAnchor != _selFocus;
+            private int  SelMin => Math.Min(_selAnchor, _selFocus);
+            private int  SelMax => Math.Max(_selAnchor, _selFocus);
 
             public new string Text
             {
                 get => _text;
-                set { _text = value ?? ""; _caret = _text.Length; ClearSel(); Relayout(); Invalidate(); }
+                set { _text = value ?? ""; _caret = _text.Length; ClearSel(); _undoStack.Clear(); _redoStack.Clear(); Relayout(); Invalidate(); }
             }
 
             public string SelectedText
@@ -241,6 +250,8 @@ namespace BrailleUrdu
                 set
                 {
                     if (string.IsNullOrEmpty(value)) return;
+                    PushUndo();
+                    if (HasSel) DeleteSelection();
                     _text  = _text.Insert(_caret, value);
                     _caret = Math.Min(_caret + value.Length, _text.Length);
                     Relayout(); Invalidate();
@@ -260,6 +271,8 @@ namespace BrailleUrdu
                 Cursor     = Cursors.IBeam;
                 TabStop    = true;
 
+                _caretTimer.Tick += (s, ev) => { _caretVisible = !_caretVisible; Invalidate(); };
+
                 var menu     = new ContextMenuStrip();
                 var copyItem = new ToolStripMenuItem("Copy");
                 copyItem.Click += (s, ev) => CopySelection();
@@ -267,7 +280,49 @@ namespace BrailleUrdu
                 ContextMenuStrip = menu;
             }
 
+            protected override void OnGotFocus(EventArgs e)
+            {
+                base.OnGotFocus(e);
+                _caretVisible = true;
+                _caretTimer.Start();
+                Invalidate();
+            }
+
+            protected override void OnLostFocus(EventArgs e)
+            {
+                base.OnLostFocus(e);
+                _caretTimer.Stop();
+                _caretVisible = false;
+                Invalidate();
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _caretTimer.Dispose();
+                base.Dispose(disposing);
+            }
+
+            // ── Undo / redo ───────────────────────────────────────────────────
+
+            private void PushUndo()
+            {
+                _undoStack.Push(new Snap { Text = _text, Caret = _caret });
+                _redoStack.Clear();
+            }
+
+            // ── Selection helpers ─────────────────────────────────────────────
+
             private void ClearSel() { _selAnchor = -1; _selFocus = -1; }
+
+            private void DeleteSelection()
+            {
+                int min = Math.Max(0, SelMin);
+                int max = Math.Min(SelMax, _text.Length);
+                if (max <= min) return;
+                _text  = _text.Substring(0, min) + _text.Substring(max);
+                _caret = min;
+                ClearSel();
+            }
 
             private void CopySelection()
             {
@@ -286,7 +341,8 @@ namespace BrailleUrdu
                 return sb.ToString();
             }
 
-            // Map a logical (scroll-adjusted) point to a flat braille char index
+            // ── Hit test ──────────────────────────────────────────────────────
+
             private int HitTest(int lx, int ly)
             {
                 var lines = WrapLines();
@@ -306,17 +362,21 @@ namespace BrailleUrdu
                 return 0;
             }
 
+            // ── Mouse ─────────────────────────────────────────────────────────
+
             protected override void OnMouseDown(MouseEventArgs e)
             {
                 base.OnMouseDown(e);
                 Focus();
                 if (e.Button == MouseButtons.Left)
                 {
-                    int idx = HitTest(e.X - AutoScrollPosition.X, e.Y - AutoScrollPosition.Y);
+                    int idx    = HitTest(e.X - AutoScrollPosition.X, e.Y - AutoScrollPosition.Y);
+                    _caret     = idx;
                     _selAnchor = idx;
                     _selFocus  = idx;
                     _selecting = true;
                     Capture    = true;
+                    _caretVisible = true;
                     Invalidate();
                 }
             }
@@ -326,6 +386,7 @@ namespace BrailleUrdu
                 base.OnMouseMove(e);
                 if (!_selecting) return;
                 _selFocus = HitTest(e.X - AutoScrollPosition.X, e.Y - AutoScrollPosition.Y);
+                _caret    = _selFocus;
                 Invalidate();
             }
 
@@ -336,34 +397,95 @@ namespace BrailleUrdu
                 Capture    = false;
             }
 
+            // ── Keyboard ──────────────────────────────────────────────────────
+
             protected override bool IsInputKey(Keys keyData)
-                => keyData == Keys.Back || keyData == Keys.Delete || base.IsInputKey(keyData);
+            {
+                switch (keyData & Keys.KeyCode)
+                {
+                    case Keys.Left:
+                    case Keys.Right:
+                    case Keys.Home:
+                    case Keys.End:
+                    case Keys.Back:
+                    case Keys.Delete:
+                        return true;
+                }
+                return base.IsInputKey(keyData);
+            }
 
             protected override void OnKeyDown(KeyEventArgs e)
             {
                 base.OnKeyDown(e);
-                if (e.Control && e.KeyCode == Keys.C)
+                if (e.Control && e.KeyCode == Keys.Z)
+                {
+                    if (_undoStack.Count > 0)
+                    {
+                        _redoStack.Push(new Snap { Text = _text, Caret = _caret });
+                        var snap = _undoStack.Pop();
+                        _text = snap.Text; _caret = snap.Caret;
+                        ClearSel(); Relayout(); Invalidate();
+                    }
+                    e.Handled = true;
+                }
+                else if (e.Control && e.KeyCode == Keys.Y)
+                {
+                    if (_redoStack.Count > 0)
+                    {
+                        _undoStack.Push(new Snap { Text = _text, Caret = _caret });
+                        var snap = _redoStack.Pop();
+                        _text = snap.Text; _caret = snap.Caret;
+                        ClearSel(); Relayout(); Invalidate();
+                    }
+                    e.Handled = true;
+                }
+                else if (e.Control && e.KeyCode == Keys.C)
                 {
                     CopySelection(); e.Handled = true;
                 }
                 else if (e.Control && e.KeyCode == Keys.A)
                 {
-                    string flat = FlatBraille();
-                    _selAnchor  = 0;
-                    _selFocus   = flat.Length;
+                    _selAnchor = 0; _selFocus = FlatBraille().Length;
                     Invalidate(); e.Handled = true;
                 }
-                else if (e.KeyCode == Keys.Back && _caret > 0)
+                else if (e.KeyCode == Keys.Left)
                 {
-                    _text = _text.Remove(--_caret, 1);
-                    ClearSel(); Relayout(); Invalidate(); e.Handled = true;
+                    if (_caret > 0) _caret--;
+                    ClearSel(); _caretVisible = true; Invalidate(); e.Handled = true;
                 }
-                else if (e.KeyCode == Keys.Delete && _caret < _text.Length)
+                else if (e.KeyCode == Keys.Right)
                 {
-                    _text = _text.Remove(_caret, 1);
-                    ClearSel(); Relayout(); Invalidate(); e.Handled = true;
+                    if (_caret < FlatBraille().Length) _caret++;
+                    ClearSel(); _caretVisible = true; Invalidate(); e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Home)
+                {
+                    _caret = 0;
+                    ClearSel(); _caretVisible = true; Invalidate(); e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.End)
+                {
+                    _caret = FlatBraille().Length;
+                    ClearSel(); _caretVisible = true; Invalidate(); e.Handled = true;
+                }
+                else if (e.KeyCode == Keys.Back || e.KeyCode == Keys.Delete)
+                {
+                    bool canAct = HasSel ||
+                                  (e.KeyCode == Keys.Back   && _caret > 0) ||
+                                  (e.KeyCode == Keys.Delete && _caret < _text.Length);
+                    if (canAct)
+                    {
+                        PushUndo();
+                        if (HasSel) DeleteSelection();
+                        else if (e.KeyCode == Keys.Back)   _text = _text.Remove(--_caret, 1);
+                        else                               _text = _text.Remove(_caret, 1);
+                        ClearSel(); Relayout(); Invalidate();
+                    }
+                    e.Handled = true;
                 }
             }
+
+            // ── Layout ────────────────────────────────────────────────────────
 
             protected override void OnResize(EventArgs e) { base.OnResize(e); Relayout(); Invalidate(); }
 
@@ -390,6 +512,8 @@ namespace BrailleUrdu
                 return lines;
             }
 
+            // ── Paint ─────────────────────────────────────────────────────────
+
             protected override void OnPaint(PaintEventArgs e)
             {
                 base.OnPaint(e);
@@ -400,6 +524,8 @@ namespace BrailleUrdu
                 int selMin = HasSel ? SelMin : -1;
                 int selMax = HasSel ? SelMax : -1;
 
+                var lines = WrapLines();
+
                 using (var rb  = new SolidBrush(Color.FromArgb(35, 35, 35)))
                 using (var ub  = new SolidBrush(Color.FromArgb(130, 130, 130)))
                 using (var sb2 = new SolidBrush(Color.FromArgb(180, 210, 240)))
@@ -408,7 +534,7 @@ namespace BrailleUrdu
                 {
                     float y = PAD;
                     int   ci = 0;
-                    foreach (string line in WrapLines())
+                    foreach (string line in lines)
                     {
                         float x = PAD;
                         foreach (char bc in line)
@@ -438,6 +564,27 @@ namespace BrailleUrdu
                         }
                         y += CellH + LINE_GAP;
                     }
+                }
+
+                // Draw caret (blinking vertical bar)
+                if (_caretVisible && Focused)
+                {
+                    float cy = PAD, cx = PAD;
+                    int ci2 = 0;
+                    for (int li = 0; li < lines.Count; li++)
+                    {
+                        int lineLen = lines[li].Length;
+                        if (ci2 + lineLen >= _caret || li == lines.Count - 1)
+                        {
+                            int col = Math.Min(_caret - ci2, lineLen);
+                            cx = PAD + col * (CellW + CELL_GAP) - 1;
+                            cy = PAD + li  * (CellH + LINE_GAP);
+                            break;
+                        }
+                        ci2 += lineLen;
+                    }
+                    using (var pen = new Pen(Color.Black, 1.5f))
+                        g.DrawLine(pen, cx, cy, cx, cy + CellH);
                 }
             }
         }
