@@ -18,6 +18,7 @@ namespace BrailleUrdu
         private Label        _sizePctLabel;
         private Label        _lblSize;
         private bool         _fitting;
+        private Panel        _sliderRow;
 
         public bool[,] ResultGrid => TrimDots();
 
@@ -284,33 +285,43 @@ namespace BrailleUrdu
             bottom.Controls.AddRange(new Control[] { btnCancel, btnOK });
 
             // ── Size slider — lives in the grey zone to the RIGHT of the grid ──
+            // Row height matches the TrackBar so all three controls share one baseline.
+            const int ROW_H    = 24;   // == TrackBar height
+            const int LBL_W    = 44;   // "Size:" label width
+            const int SLIDER_W = 220;
+            const int PCT_W    = 42;   // "100%" label width
+
             _lblSize = new Label
             {
                 Text      = "Size:",
-                AutoSize  = true,
+                Size      = new Size(LBL_W, ROW_H),
+                TextAlign = ContentAlignment.MiddleLeft,
                 Font      = new Font("Segoe UI", 8.5f),
-                ForeColor = Color.FromArgb(40, 40, 40)
+                ForeColor = Color.FromArgb(40, 40, 40),
+                Location  = new Point(0, 0)
             };
 
             _sizeSlider = new TrackBar
             {
-                Minimum       = 10,
-                Maximum       = 100,
-                Value         = 100,
-                TickStyle     = TickStyle.BottomRight,
-                TickFrequency = 10,
-                SmallChange   = 5,
-                LargeChange   = 10,
-                Size          = new Size(220, 30),
-                BackColor     = Color.FromArgb(185, 185, 185)
+                Minimum     = 10,
+                Maximum     = 100,
+                Value       = 100,
+                TickStyle   = TickStyle.None,
+                SmallChange = 5,
+                LargeChange = 10,
+                Size        = new Size(SLIDER_W, ROW_H),
+                BackColor   = Color.FromArgb(185, 185, 185),
+                Location    = new Point(LBL_W + 2, 0)
             };
 
             _sizePctLabel = new Label
             {
                 Text      = "100%",
-                Size      = new Size(40, 18),
+                Size      = new Size(PCT_W, ROW_H),
+                TextAlign = ContentAlignment.MiddleLeft,
                 Font      = new Font("Segoe UI", 8.5f),
-                ForeColor = Color.FromArgb(40, 40, 40)
+                ForeColor = Color.FromArgb(40, 40, 40),
+                Location  = new Point(LBL_W + 2 + SLIDER_W + 2, 0)
             };
 
             _sizeSlider.ValueChanged += (s, e) =>
@@ -319,8 +330,15 @@ namespace BrailleUrdu
                 ApplyScale(_sizeSlider.Value);
             };
 
-            // Positioning is done inside FitGrid so it always tracks the grid's right edge
-            _scroll.Controls.AddRange(new Control[] { _lblSize, _sizeSlider, _sizePctLabel });
+            _sliderRow = new Panel
+            {
+                Size      = new Size(LBL_W + 2 + SLIDER_W + 2 + PCT_W, ROW_H),
+                BackColor = Color.FromArgb(185, 185, 185)
+            };
+            _sliderRow.Controls.AddRange(new Control[] { _lblSize, _sizeSlider, _sizePctLabel });
+
+            // Positioning of _sliderRow is done in FitGrid so it tracks the grid's right edge
+            _scroll.Controls.Add(_sliderRow);
 
             Controls.Add(_scroll);
             Controls.Add(tools);
@@ -348,15 +366,11 @@ namespace BrailleUrdu
                 _fitting   = false;
             }
 
-            // Place slider at the bottom of the grey zone to the right of the grid
-            if (_sizeSlider != null)
+            // Place slider row at the bottom of the grey zone to the right of the grid
+            if (_sliderRow != null)
             {
                 int rx = _gridView.Right + 14;
-                int by = _gridView.Bottom;                            // bottom of grid
-                _sizeSlider.Location   = new Point(rx + _lblSize.Width + 4, by - _sizeSlider.Height);
-                _lblSize.Location      = new Point(rx,                       by - _lblSize.Height - 6);
-                _sizePctLabel.Location = new Point(rx + _lblSize.Width + 4 + _sizeSlider.Width + 4,
-                                                   by - _sizePctLabel.Height - 6);
+                _sliderRow.Location = new Point(rx, _gridView.Bottom - _sliderRow.Height);
             }
         }
 
