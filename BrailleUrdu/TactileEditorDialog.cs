@@ -96,43 +96,55 @@ namespace BrailleUrdu
             int offC = (_cols - drawW) / 2;
             int offR = (_rows - drawH) / 2;
 
-            // Clear grid, then paint scaled pattern
+            // Forward mapping: each source dot fires exactly one dest dot whose position
+            // is proportionally scaled.  Corners are pinned precisely (no rounding drift).
+            // Gap-fill between 4-connected source neighbours keeps lines solid at any scale
+            // without ever creating a double-wide stroke.
             for (int c = 0; c < _cols; c++)
             for (int r = 0; r < _rows; r++)
                 _dots[c, r] = false;
 
-            for (int dr = 0; dr < drawH; dr++)
-            for (int dc = 0; dc < drawW; dc++)
+            double scaleC = srcW > 1 ? (double)(drawW - 1) / (srcW - 1) : 0;
+            double scaleR = srcH > 1 ? (double)(drawH - 1) / (srcH - 1) : 0;
+
+            void Fire(int c, int r)
             {
-                // Downscaling: left-edge formula — range always covers srcMinC/srcMinR.
-                // Upscaling:   centred formula  — symmetric, so left≡right, top≡bottom.
-                int sc0, sc1;
-                if (drawW <= srcW)
+                if ((uint)c < (uint)_cols && (uint)r < (uint)_rows)
+                    _dots[c, r] = true;
+            }
+            void Line(int c0, int r0, int c1, int r1)
+            {
+                int ddc = Math.Abs(c1 - c0), ddr = Math.Abs(r1 - r0);
+                int sc = c0 < c1 ? 1 : -1, sr = r0 < r1 ? 1 : -1, err = ddc - ddr;
+                while (true)
                 {
-                    sc0 = srcMinC + dc * srcW / drawW;
-                    sc1 = Math.Max(sc0 + 1, srcMinC + (dc + 1) * srcW / drawW);
+                    Fire(c0, r0);
+                    if (c0 == c1 && r0 == r1) break;
+                    int e2 = 2 * err;
+                    if (e2 > -ddr) { err -= ddr; c0 += sc; }
+                    if (e2 <  ddc) { err += ddc; r0 += sr; }
                 }
-                else
-                {
-                    sc0 = srcMinC + (2 * dc * srcW + srcW) / (2 * drawW);
-                    sc1 = sc0 + 1;
-                }
-                int sr0, sr1;
-                if (drawH <= srcH)
-                {
-                    sr0 = srcMinR + dr * srcH / drawH;
-                    sr1 = Math.Max(sr0 + 1, srcMinR + (dr + 1) * srcH / drawH);
-                }
-                else
-                {
-                    sr0 = srcMinR + (2 * dr * srcH + srcH) / (2 * drawH);
-                    sr1 = sr0 + 1;
-                }
-                bool any = false;
-                for (int sr = sr0; sr < Math.Min(_rows, sr1) && !any; sr++)
-                for (int sc = sc0; sc < Math.Min(_cols, sc1) && !any; sc++)
-                    any = _sourceDots[sc, sr];
-                _dots[offC + dc, offR + dr] = any;
+            }
+
+            for (int sr = srcMinR; sr <= srcMaxR; sr++)
+            for (int sc2 = srcMinC; sc2 <= srcMaxC; sc2++)
+            {
+                if (!_sourceDots[sc2, sr]) continue;
+                int dc = offC + (int)Math.Round((sc2 - srcMinC) * scaleC);
+                int dr = offR + (int)Math.Round((sr  - srcMinR) * scaleR);
+                Fire(dc, dr);
+
+                // Fill gap to the right 4-connected neighbour.
+                if (sc2 < srcMaxC && _sourceDots[sc2 + 1, sr])
+                    Line(dc, dr,
+                         offC + (int)Math.Round((sc2 + 1 - srcMinC) * scaleC),
+                         offR + (int)Math.Round((sr      - srcMinR) * scaleR));
+
+                // Fill gap to the bottom 4-connected neighbour.
+                if (sr < srcMaxR && _sourceDots[sc2, sr + 1])
+                    Line(dc, dr,
+                         offC + (int)Math.Round((sc2 - srcMinC) * scaleC),
+                         offR + (int)Math.Round((sr + 1 - srcMinR) * scaleR));
             }
 
             _gridView?.Invalidate();
@@ -575,6 +587,45 @@ namespace BrailleUrdu
                             int dr = (2 * py + 1) / (2 * S);
                             if ((uint)dc < (uint)_cols && (uint)dr < (uint)_rows)
                                 _dots[dc, dr] = true;
+                        }
+
+                        // Repair 1-dot gaps in straight runs: bicubic anti-aliasing can
+                        // push one corner pixel's luminance above the 128 threshold, leaving
+                        // a single hole in the outer contour that becomes 1-3 missing dest
+                        // dots when the shape is scaled up. Fill any empty cell that has
+                        // set neighbours on both sides of the same axis.
+                        for (int row = 1; row < _rows - 1; row++)
+                        for (int col = 1; col < _cols - 1; col++)
+                        {
+                            if (_dots[col, row]) continue;
+                            if ((_dots[col, row - 1] && _dots[col, row + 1]) ||
+                                (_dots[col - 1, row] && _dots[col + 1, row]))
+                                _dots[col, row] = true;
+                        }
+
+                        // Fill bounding-box corner gaps: the exact corner pixel may be
+                        // missing while both adjacent perpendicular edge dots exist.
+                        int bbC0 = _cols, bbC1 = -1, bbR0 = _rows, bbR1 = -1;
+                        for (int row = 0; row < _rows; row++)
+                        for (int col = 0; col < _cols; col++)
+                        {
+                            if (!_dots[col, row]) continue;
+                            if (col < bbC0) bbC0 = col;
+                            if (col > bbC1) bbC1 = col;
+                            if (row < bbR0) bbR0 = row;
+                            if (row > bbR1) bbR1 = row;
+                        }
+                        if (bbC1 > bbC0 && bbR1 > bbR0)
+                        {
+                            void FillCorner(int c, int r, int nc, int nr)
+                            {
+                                if (!_dots[c, r] && _dots[nc, r] && _dots[c, nr])
+                                    _dots[c, r] = true;
+                            }
+                            FillCorner(bbC0, bbR0, bbC0 + 1, bbR0 + 1);
+                            FillCorner(bbC1, bbR0, bbC1 - 1, bbR0 + 1);
+                            FillCorner(bbC0, bbR1, bbC0 + 1, bbR1 - 1);
+                            FillCorner(bbC1, bbR1, bbC1 - 1, bbR1 - 1);
                         }
                     }
                 }
